@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户面板</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/tailwindcss-browser/4.1.13/index.global.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <style>
+        @import url('https://font.webcache.cn/google/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@300;400;500;600;700;800&display=swap');
+        :root {
+            --tag-bg: #e0e7ff; /* indigo-100 */
+            --tag-text: #4338ca; /* indigo-800 */
+            --tag-hover-bg: #c7d2fe; /* indigo-200 */
+            --bg-1: #eef3f8;
+            --bg-2: #f9fbfe;
+            --surface: rgba(255, 255, 255, 0.88);
+            --surface-strong: #ffffff;
+            --text: #0f172a;
+            --muted: #64748b;
+            --accent: #007aff;
+            --accent-glow: rgba(0, 122, 255, 0.2);
+            --border: rgba(15, 23, 42, 0.12);
+            --shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+            --shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.12);
+            --radius: 22px;
+        }
+        .spinner { border-color: #f3f3f3; border-top-color: #4f46e5; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .slider { transition: .4s; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #4f46e5; }
+        input:checked + .slider:before { transform: translateX(26px); }
+
+        #rule-modal, #batch-edit-modal, #confirm-modal { background-color: rgba(0, 0, 0, 0.5); }
+        .modal-content { max-height: 90vh; }
+        .multiselect-container { max-height: 200px; }
+        
+        #batch-actions-bar { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+
+        .toast-enter { transform: translateX(100%); opacity: 0; }
+        .toast-enter-active { transform: translateX(0); opacity: 1; }
+        .toast-exit { transform: translateX(0); opacity: 1; }
+        .toast-exit-active { transform: translateX(100%); opacity: 0; }
+
+        body.app-body {
+            margin: 0;
+            background: radial-gradient(circle at 15% 20%, rgba(0, 122, 255, 0.18), transparent 40%),
+                radial-gradient(circle at 85% 10%, rgba(52, 199, 89, 0.16), transparent 45%),
+                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+            color: var(--text);
+            font-family: "Manrope", "SF Pro Text", "SF Pro Display", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            scroll-behavior: smooth;
+        }
+
+        .app-shell {
+            gap: 24px;
+            padding: clamp(16px, 2.5vw, 28px);
+        }
+
+        .app-sidebar {
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(16px);
+        }
+
+        .panel-card {
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+            animation: panelRise 0.6s ease-out;
+        }
+
+        .account-card {
+            background: var(--surface-strong);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 18px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .account-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea,
+        select {
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 16px rgba(15, 23, 42, 0.06);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        button {
+            border-radius: 12px;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        a {
+            color: var(--accent);
+        }
+
+        #rule-modal,
+        #batch-edit-modal,
+        #confirm-modal {
+            background-color: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(6px);
+        }
+
+        .modal-content {
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: var(--shadow);
+            background: var(--surface-strong);
+        }
+
+        #toast-container > div {
+            box-shadow: var(--shadow-soft);
+        }
+
+        @keyframes panelRise {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 900px) {
+            .app-shell {
+                flex-direction: column;
+            }
+
+            #sidebar {
+                width: 100%;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="app-body">
+    <div class="flex h-screen app-shell">
+        <!-- 左侧边栏 -->
+        <aside id="sidebar" class="w-60 bg-white p-5 shadow-md flex flex-col app-sidebar">
+            <h2 class="text-xl font-bold text-indigo-600 mb-6">账号分组</h2>
+            <nav id="category-nav" class="flex-1 space-y-2"></nav>
+        </aside>
+
+        <!-- 右侧主内容区 -->
+        <main class="flex-1 flex flex-col p-6 overflow-y-auto">
+            <div class="bg-white rounded-2xl shadow-lg p-6 panel-card">
+                <!-- 头部 -->
+                <div class="flex justify-between items-center pb-4 mb-2 border-b border-gray-200">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-800">我的账号</h1>
+                        <p class="text-gray-500 mt-1">管理您的账号、转发规则和公告</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <input type="text" id="search-input" onkeyup="filterAccounts()" placeholder="搜索昵称、ID或标签..." class="w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        <a href="/api/logout" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors">登出</a>
+                    </div>
+                </div>
+                <!-- 批量操作栏 -->
+                <div id="batch-actions-bar" class="flex items-center gap-4 py-3">
+                    <label class="flex items-center text-sm font-medium">
+                        <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAllAccounts(this.checked)" class="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                        全选 (可见)
+                    </label>
+                    <span id="selection-count" class="text-sm font-semibold text-indigo-600 w-32"></span>
+                    <button onclick="openBatchEditModal()" class="bg-indigo-600 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm hover:bg-indigo-700">
+                        批量设置
+                    </button>
+                    <div class="ml-auto">
+                        <select id="status-filter-select" onchange="filterAccounts()" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition text-sm">
+                            <option value="all">全部状态</option>
+                            <option value="online">仅在线</option>
+                            <option value="offline">仅离线</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- 账号列表 -->
+                <div id="user-account-list" class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 规则配置弹窗 -->
+    <div id="rule-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
+        <div class="modal-content bg-white w-full max-w-2xl rounded-lg shadow-xl overflow-y-auto p-6">
+            <h2 id="rule-modal-title" class="text-2xl font-bold mb-4">配置规则</h2>
+            <div id="modal-loader" class="text-center p-8 hidden">
+                <div class="spinner w-8 h-8 rounded-full border-4 inline-block"></div>
+                <p class="mt-2">正在加载数据...</p>
+            </div>
+            <form id="rule-form" class="space-y-4">
+                <input type="hidden" id="rule-id">
+                
+                <div>
+                    <label for="source-room-select" class="block text-sm font-medium text-gray-700 mb-1">来源群聊</label>
+                    <div class="flex items-center gap-2">
+                        <select id="source-room-select" class="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">-- 请选择 --</option>
+                        </select>
+                        <button type="button" onclick="loadRoomsForModal(true)" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm">刷新</button>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="block text-sm font-medium text-gray-700">选择触发成员 (可多选) <span id="member-count" class="font-normal text-gray-500">(0)</span></label>
+                        <button type="button" onclick="refreshMembersForModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-1 px-3 border border-gray-300 rounded-md shadow-sm text-xs">刷新</button>
+                    </div>
+                    <div class="flex items-center gap-4 my-2">
+                         <input type="text" id="member-search-input" onkeyup="filterMembers()" placeholder="搜索成员..." class="w-full p-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <label class="flex items-center text-sm font-medium mb-2">
+                        <input type="checkbox" id="select-all-members-checkbox" onclick="toggleSelectAllMembers(this.checked)" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                        全选 (可见项)
+                    </label>
+                    <div id="source-member-multiselect" class="multiselect-container w-full p-2 border border-gray-300 rounded-md bg-gray-50 overflow-y-auto">
+                        请先选择来源群聊...
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">目标群聊 (可多选) <span id="dest-count" class="font-normal text-gray-500">(0)</span></label>
+                     <div class="flex items-center gap-4 my-2">
+                         <input type="text" id="dest-search-input" onkeyup="filterDestinations()" placeholder="搜索目标群聊..." class="w-full p-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <label class="flex items-center text-sm font-medium mb-2">
+                        <input type="checkbox" id="select-all-dest-checkbox" onclick="toggleSelectAllDestinations(this.checked)" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                        全选 (可见项)
+                    </label>
+                    <div id="destination-room-multiselect" class="multiselect-container w-full p-2 border border-gray-300 rounded-md bg-gray-50 overflow-y-auto">
+                        正在加载群聊列表...
+                    </div>
+                </div>
+
+                <div class="flex items-center">
+                    <input id="rule-enabled" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" checked>
+                    <label for="rule-enabled" class="ml-2 block text-sm text-gray-900">启用此规则</label>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" onclick="closeRuleModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-md">取消</button>
+                    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md">保存规则</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 批量编辑弹窗 -->
+    <div id="batch-edit-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
+        <div class="modal-content bg-white w-full max-w-md rounded-lg shadow-xl p-6">
+            <h2 class="text-2xl font-bold mb-4">批量设置</h2>
+            <form id="batch-edit-form" class="space-y-4">
+                <div>
+                    <label for="batch-category" class="block text-sm font-medium text-gray-700">新分组 (留空则不修改)</label>
+                    <input type="text" id="batch-category" placeholder="输入新的分组名称" class="mt-1 w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="batch-add-tag-input" class="block text-sm font-medium text-gray-700">新标签 (回车或点击+添加)</label>
+                    <div id="batch-tags-editor" class="mt-1">
+                        <div id="batch-tags-pills" class="flex flex-wrap gap-1 p-2 border rounded-md min-h-[40px] bg-gray-50">
+                            <!-- Tag pills will be rendered here -->
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input type="text" id="batch-add-tag-input" placeholder="添加标签后按回车" class="w-full p-1.5 border border-gray-300 rounded-md text-sm">
+                            <button type="button" id="batch-add-tag-btn" class="bg-blue-500 text-white font-bold py-1.5 px-3 rounded-md text-sm">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t pt-4 mt-4 space-y-4">
+                    <div>
+                        <label for="batch-delay" class="block text-sm font-medium text-gray-700">批量设置发送延时 (ms)</label>
+                        <input type="number" id="batch-delay" placeholder="留空则不修改" class="mt-1 w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label for="batch-switch-status" class="block text-sm font-medium text-gray-700">批量设置总开关</label>
+                        <select id="batch-switch-status" class="mt-1 w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+                            <option value="no-change">-- 不修改 --</option>
+                            <option value="enable">全部开启</option>
+                            <option value="disable">全部关闭</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" onclick="closeBatchEditModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-md">取消</button>
+                    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md">确认修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 确认操作弹窗 -->
+    <div id="confirm-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 hidden">
+        <div class="modal-content bg-white w-full max-w-sm rounded-lg shadow-xl p-6 text-center">
+            <h3 id="confirm-title" class="text-xl font-bold mb-2">确认操作</h3>
+            <p id="confirm-message" class="text-gray-600 mb-6">您确定要执行此操作吗？</p>
+            <div class="flex justify-center gap-4">
+                <button id="confirm-cancel-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-6 rounded-md">取消</button>
+                <button id="confirm-ok-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-md">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed top-5 right-5 z-[100] space-y-3 w-80"></div>
+
+<script>
+    const userAccountList = document.getElementById('user-account-list');
+    const sidebarNav = document.getElementById('category-nav');
+    
+    let currentEditingUserId = null;
+    const ruleModal = document.getElementById('rule-modal');
+    const modalLoader = ruleModal.querySelector('#modal-loader');
+    const modalForm = ruleModal.querySelector('#rule-form');
+    const batchEditModal = document.getElementById('batch-edit-modal');
+    
+    let allAccountsData = [];
+
+    // --- UI Helpers ---
+    function showToast(message, type = 'success') {
+        const toastContainer = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        const colors = {
+            success: 'bg-green-500',
+            error: 'bg-red-500',
+            info: 'bg-blue-500'
+        };
+        toast.className = `text-white px-4 py-3 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out toast-enter`;
+        toast.classList.add(colors[type] || 'bg-gray-700');
+        toast.textContent = message;
+
+        toastContainer.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.remove('toast-enter');
+            toast.classList.add('toast-enter-active');
+        });
+
+        setTimeout(() => {
+            toast.classList.remove('toast-enter-active');
+            toast.classList.add('toast-exit');
+            requestAnimationFrame(() => {
+                toast.classList.add('toast-exit-active');
+            });
+            toast.addEventListener('transitionend', () => toast.remove());
+        }, 3000);
+    }
+
+    function showConfirm(title, message, onConfirm) {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        
+        const okBtn = document.getElementById('confirm-ok-btn');
+        const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+        const newOkBtn = okBtn.cloneNode(true);
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+
+        const close = () => modal.classList.add('hidden');
+
+        newOkBtn.addEventListener('click', () => {
+            onConfirm();
+            close();
+        });
+        cancelBtn.onclick = close;
+        modal.onclick = (e) => {
+            if (e.target === modal) close();
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    const TAG_COLORS = [
+        'bg-blue-100 text-blue-800', 'bg-green-100 text-green-800', 'bg-yellow-100 text-yellow-800',
+        'bg-purple-100 text-purple-800', 'bg-pink-100 text-pink-800', 'bg-indigo-100 text-indigo-800',
+        'bg-red-100 text-red-800', 'bg-teal-100 text-teal-800', 'bg-gray-200 text-gray-800'
+    ];
+
+    function buildAvatarDataUrl(letter, size) {
+        const safe = (letter || '?').toString().trim().charAt(0) || '?';
+        const fontSize = Math.max(12, Math.round(size * 0.45));
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="100%" height="100%" rx="${Math.round(size / 2)}" fill="#E2E8F0"/><text x="50%" y="50%" text-anchor="middle" dy=".35em" font-family="Manrope, sans-serif" font-size="${fontSize}" fill="#64748B">${safe}</text></svg>`;
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    }
+
+    function getColorForTag(tagText) {
+        let hash = 0;
+        for (let i = 0; i < tagText.length; i++) {
+            hash += tagText.charCodeAt(i);
+        }
+        return TAG_COLORS[hash % TAG_COLORS.length];
+    }
+
+    function createTagPill(tagText, onRemove) {
+        const pill = document.createElement('span');
+        const colorClass = getColorForTag(tagText);
+        pill.className = `text-xs font-semibold px-2 py-1 rounded-full flex items-center ${colorClass}`;
+        pill.innerHTML = `
+            <span>${tagText}</span>
+            <button type="button" class="ml-1.5 font-bold opacity-70 hover:opacity-100">&times;</button>
+        `;
+        pill.querySelector('button').onclick = () => onRemove(pill);
+        return pill;
+    }
+
+    function setupTagInput(inputId, buttonId, pillsContainerId) {
+        const input = document.getElementById(inputId);
+        const button = document.getElementById(buttonId);
+        const pillsContainer = document.getElementById(pillsContainerId);
+
+        const addTagAction = () => {
+            const tagText = input.value.trim();
+            if (tagText) {
+                const pill = createTagPill(tagText, (p) => p.remove());
+                pillsContainer.appendChild(pill);
+                input.value = '';
+            }
+        };
+
+        button.onclick = addTagAction;
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addTagAction();
+            }
+        };
+    }
+
+    // --- Core Data and Rendering ---
+    const fetchData = async () => {
+        const response = await fetch('/api/data');
+        if (response.status === 401) { window.location.href = '/'; return; }
+        const data = await response.json();
+        allAccountsData = data.assigned_to_me || [];
+        allAccountsData.sort((a, b) => (a.myNick || '').localeCompare(b.myNick || '', 'zh-CN'));
+        renderView();
+    };
+
+    const renderView = () => {
+        renderSidebar();
+        renderAccountCards();
+        filterAccounts();
+        updateBatchActionBar();
+    };
+    
+    const renderSidebar = () => {
+        const categories = [...new Set(allAccountsData.map(acc => acc.category || '未分组'))];
+        const activeCategory = document.querySelector('#category-nav .bg-indigo-100')?.dataset.category || '全部';
+
+        sidebarNav.innerHTML = `
+            <a href="#" data-category="全部" onclick="filterByCategory('全部', this)" class="flex items-center justify-between px-4 py-2 text-gray-700 hover:bg-indigo-100 rounded-lg transition-colors ${activeCategory === '全部' ? 'bg-indigo-100 font-semibold' : ''}">
+                <span>全部账号</span>
+                <span class="text-sm font-normal text-gray-500">${allAccountsData.length}</span>
+            </a>
+            ${categories.map(cat => {
+                const count = allAccountsData.filter(acc => (acc.category || '未分组') === cat).length;
+                return `<a href="#" data-category="${cat}" onclick="filterByCategory('${cat}', this)" class="flex items-center justify-between px-4 py-2 text-gray-700 hover:bg-indigo-100 rounded-lg transition-colors ${activeCategory === cat ? 'bg-indigo-100 font-semibold' : ''}">
+                    <span>${cat}</span>
+                    <span class="text-sm font-normal text-gray-500">${count}</span>
+                </a>`
+            }).join('')}
+        `;
+    };
+
+    const renderAccountCards = () => {
+        const openSettings = new Set();
+        document.querySelectorAll('.settings-panel:not(.hidden)').forEach(p => openSettings.add(p.dataset.userId));
+
+        userAccountList.innerHTML = '';
+        if (allAccountsData.length === 0) {
+            userAccountList.innerHTML = `<p class="text-gray-500 col-span-full text-center py-10">没有分配给您的账号。</p>`;
+            return;
+        }
+        allAccountsData.forEach(acc => {
+            const card = createAccountItem(acc);
+            userAccountList.appendChild(card);
+            if (openSettings.has(acc.user_id)) {
+                toggleSettings(acc.user_id, false);
+            }
+        });
+    };
+
+    const createAccountItem = (account) => {
+        const item = document.createElement('div');
+        item.className = 'account-card bg-white p-5 rounded-xl shadow-lg border border-gray-200 flex flex-col gap-4 transition-all duration-300';
+        item.id = `account-${account.user_id}`;
+        item.dataset.userId = account.user_id;
+        item.dataset.nick = (account.myNick || '').toLowerCase();
+        item.dataset.category = account.category || '未分组';
+        item.dataset.tags = (account.tags || []).join(',').toLowerCase();
+        item.dataset.rules = JSON.stringify(account.forwarding_rules || []);
+        item.dataset.online = account.online;
+
+        const isOnline = account.online;
+        const onlineStatusClass = isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
+        const onlineDotClass = isOnline ? 'bg-green-500' : 'bg-gray-400';
+        const onlineText = isOnline ? '在线' : '离线';
+        const sendEnabled = account.send_enabled ? 'checked' : '';
+        const forwardingDelay = account.forwarding_delay === undefined ? 500 : account.forwarding_delay;
+
+        const tagsHtml = (account.tags || []).map(tag => `<span class="text-xs font-semibold px-2 py-1 rounded-full ${getColorForTag(tag)}">${tag}</span>`).join('');
+
+        const fallbackAvatar = buildAvatarDataUrl(account.myNick || '?', 48);
+        const avatarUrl = account.avatar_url || fallbackAvatar;
+
+
+        item.innerHTML = `
+            <!-- 卡片头部 -->
+            <div class="flex justify-between items-start">
+                 <div class="flex items-center gap-3">
+                    <input type="checkbox" value="${account.user_id}" onchange="updateBatchActionBar()" class="account-checkbox h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                     <img src="${avatarUrl}" 
+                         onerror="this.onerror=null; this.src='${fallbackAvatar}';"
+                         class="w-12 h-12 rounded-full object-cover border-2 border-white shadow">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="nick text-lg font-bold text-gray-900">${account.myNick}</span>
+                            <span class="flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full ${onlineStatusClass}">
+                                <span class="h-2 w-2 rounded-full ${onlineDotClass}"></span>
+                                ${onlineText}
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">${account.user_id}</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-medium text-gray-600">转发总开关</span>
+                    <label class="switch relative inline-block w-[50px] h-[24px]">
+                        <input type="checkbox" onchange="saveSettings('${account.user_id}')" ${sendEnabled}>
+                        <span class="slider absolute cursor-pointer top-0 left-0 right-0 bottom-0 bg-gray-300 rounded-full"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 分组和标签 -->
+            <div id="meta-display-${account.user_id}">
+                <div class="flex items-center gap-2 text-sm">
+                    <strong class="text-gray-600">分组:</strong>
+                    <span class="font-medium text-indigo-700">${account.category || '未分组'}</span>
+                </div>
+                <div class="flex items-start gap-2 text-sm mt-2">
+                    <strong class="text-gray-600 mt-1">标签:</strong>
+                    <div class="flex flex-wrap gap-2">${tagsHtml || '<span class="text-gray-400">无</span>'}</div>
+                </div>
+                 <button onclick="openMetaEditor('${account.user_id}')" class="text-xs text-blue-600 hover:underline mt-2">编辑分组和标签</button>
+            </div>
+            <div id="meta-editor-${account.user_id}" class="hidden space-y-3">
+                 <div>
+                    <label class="text-sm font-medium text-gray-700">分组</label>
+                    <input type="text" id="category-input-${account.user_id}" value="${account.category || '未分组'}" class="mt-1 w-full p-1.5 border border-gray-300 rounded-md text-sm">
+                 </div>
+                 <div>
+                    <label class="block text-sm font-medium text-gray-700">标签 (回车或点击+添加)</label>
+                    <div id="tags-editor-${account.user_id}" class="mt-1">
+                        <div id="tags-pills-${account.user_id}" class="flex flex-wrap gap-1 p-2 border rounded-md min-h-[40px] bg-gray-50"></div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <input type="text" id="add-tag-input-${account.user_id}" placeholder="添加标签..." class="w-full p-1.5 border border-gray-300 rounded-md text-sm">
+                            <button type="button" id="add-tag-btn-${account.user_id}" class="bg-blue-500 text-white font-bold py-1.5 px-3 rounded-md text-sm">+</button>
+                        </div>
+                    </div>
+                 </div>
+                 <div class="flex gap-2">
+                    <button onclick="saveAccountMeta('${account.user_id}')" class="text-xs bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded">保存</button>
+                    <button onclick="closeMetaEditor('${account.user_id}')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-3 rounded">取消</button>
+                 </div>
+            </div>
+
+            <!-- 延迟和操作 -->
+            <div class="border-t border-gray-200 pt-4 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-gray-600">统一延时(ms)</span>
+                    <input type="number" value="${forwardingDelay}" class="w-24 p-1 border border-gray-300 rounded-md text-sm" onchange="saveSettings('${account.user_id}')">
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleSettings('${account.user_id}', true)" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold py-1.5 px-3 border border-indigo-200 rounded-md text-sm transition-colors">配置规则</button>
+                    <button onclick="unassignAccount('${account.user_id}')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-1.5 px-3 rounded-md text-sm transition-colors">解绑</button>
+                </div>
+            </div>
+
+            <!-- 规则列表面板 -->
+            <div id="settings-${account.user_id}" data-user-id="${account.user_id}" class="settings-panel border-t border-gray-200 pt-4 hidden">
+                 <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-md font-semibold">转发规则管理</h3>
+                    <button onclick="openRuleModal('${account.user_id}')" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-4 rounded-md text-sm">添加新规则</button>
+                 </div>
+                 <div id="rules-list-${account.user_id}" class="space-y-2"></div>
+            </div>
+        `;
+
+        const rulesListDiv = item.querySelector(`#rules-list-${account.user_id}`);
+        renderRulesList(rulesListDiv, account.user_id, account.forwarding_rules || []);
+        
+        return item;
+    };
+
+    const renderRulesList = (container, userId, rules) => {
+        if (rules.length === 0) {
+            container.innerHTML = `<p class="text-gray-500 text-sm p-2">暂无规则，请点击右上角添加。</p>`;
+            return;
+        }
+        container.innerHTML = rules.map((rule, index) => {
+            const sourceRoomName = rule.source_room.name || '未知群聊';
+            const memberCount = rule.source_members.length;
+            const destCount = rule.destinations.length;
+            const statusClass = rule.enabled ? 'text-green-600' : 'text-gray-400';
+            const statusText = rule.enabled ? '已启用' : '已禁用';
+
+            return `
+                <div class="rule-item flex justify-between items-center p-2 bg-gray-50 rounded-md border text-sm">
+                    <div>
+                        <p><strong>来源:</strong> ${sourceRoomName} (${memberCount}人)</p>
+                        <p><strong>目标:</strong> ${destCount}个群聊</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold ${statusClass}">${statusText}</span>
+                        <button onclick="openRuleModal('${userId}', ${index})" class="text-blue-600 hover:underline">编辑</button>
+                        <button onclick="deleteRule('${userId}', ${index})" class="text-red-600 hover:underline">删除</button>
+                    </div>
+                </div>`;
+        }).join('');
+    };
+    
+    // --- 批量操作 ---
+    function updateBatchActionBar() {
+        const selectedCount = document.querySelectorAll('.account-checkbox:checked').length;
+        const countSpan = document.getElementById('selection-count');
+        
+        if (selectedCount > 0) {
+            countSpan.textContent = `已选择 ${selectedCount} 个账号`;
+        } else {
+            countSpan.textContent = '';
+            document.getElementById('select-all-checkbox').checked = false;
+        }
+    }
+
+    function toggleSelectAllAccounts(isChecked) {
+        document.querySelectorAll('.account-card:not(.hidden) .account-checkbox').forEach(cb => {
+            cb.checked = isChecked;
+        });
+        updateBatchActionBar();
+    }
+
+    function openBatchEditModal() {
+        const selectedCount = document.querySelectorAll('.account-checkbox:checked').length;
+        if (selectedCount === 0) {
+            showToast('请至少选择一个账号进行操作。', 'error');
+            return;
+        }
+        document.getElementById('batch-tags-pills').innerHTML = '';
+        batchEditModal.classList.remove('hidden');
+        setupTagInput('batch-add-tag-input', 'batch-add-tag-btn', 'batch-tags-pills');
+    }
+
+    function closeBatchEditModal() {
+        batchEditModal.classList.add('hidden');
+        document.getElementById('batch-edit-form').reset();
+    }
+
+    document.getElementById('batch-edit-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const selectedIds = Array.from(document.querySelectorAll('.account-checkbox:checked')).map(cb => cb.value);
+
+        const button = e.target.querySelector('button[type="submit"]');
+        button.disabled = true;
+        button.textContent = '处理中...';
+
+        // Part 1: Meta Update (Category & Tags)
+        const categoryInput = document.getElementById('batch-category');
+        const tagsPills = document.querySelectorAll('#batch-tags-pills span>span');
+        const tags = Array.from(tagsPills).map(span => span.textContent);
+        
+        const hasMetaUpdate = categoryInput.value.trim() !== '' || tags.length > 0;
+
+        if (hasMetaUpdate) {
+            const metaPayload = { user_ids: selectedIds };
+            if (categoryInput.value.trim() !== '') {
+                metaPayload.category = categoryInput.value.trim();
+            }
+            if (tags.length > 0) {
+                metaPayload.tags = tags;
+            }
+            
+            await fetch('/api/batch_update_meta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(metaPayload)
+            });
+        }
+
+        // Part 2: Settings Update (Delay & Switch)
+        const delayInput = document.getElementById('batch-delay');
+        const switchSelect = document.getElementById('batch-switch-status');
+        const newDelay = delayInput.value;
+        const switchStatus = switchSelect.value;
+        const hasSettingsUpdate = newDelay !== '' || switchStatus !== 'no-change';
+
+        if (hasSettingsUpdate) {
+            for (const userId of selectedIds) {
+                const accountDiv = document.getElementById(`account-${userId}`);
+                if (!accountDiv) continue;
+
+                if (newDelay !== '') {
+                    const delayInputField = accountDiv.querySelector('input[type="number"]');
+                    if (delayInputField) delayInputField.value = newDelay;
+                }
+                if (switchStatus !== 'no-change') {
+                    const switchCheckbox = accountDiv.querySelector('.switch input[type="checkbox"]');
+                    if (switchCheckbox) switchCheckbox.checked = (switchStatus === 'enable');
+                }
+                await saveSettings(userId);
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+        
+        if (!hasMetaUpdate && !hasSettingsUpdate) {
+            showToast('未输入任何修改内容。', 'info');
+        } else {
+            showToast('批量设置已提交!', 'success');
+        }
+        
+        button.disabled = false;
+        button.textContent = '确认修改';
+        closeBatchEditModal();
+    });
+
+    // --- 过滤和排序 ---
+    function filterByCategory(category, element) {
+        document.querySelectorAll('#category-nav a').forEach(a => a.classList.remove('bg-indigo-100', 'font-semibold'));
+        element.classList.add('bg-indigo-100', 'font-semibold');
+        filterAccounts();
+    }
+
+    function filterAccounts() {
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        const activeCategory = document.querySelector('#category-nav .bg-indigo-100')?.dataset.category || '全部';
+        const statusFilter = document.getElementById('status-filter-select').value;
+
+        document.querySelectorAll('.account-card').forEach(card => {
+            const categoryMatch = activeCategory === '全部' || card.dataset.category === activeCategory;
+            const searchMatch = (card.dataset.nick || '').includes(searchTerm) ||
+                                  (card.dataset.userId || '').includes(searchTerm) ||
+                                  (card.dataset.tags || '').includes(searchTerm);
+            
+            let statusMatch = statusFilter === 'all' || 
+                              (statusFilter === 'online' && card.dataset.online === 'true') ||
+                              (statusFilter === 'offline' && card.dataset.online === 'false');
+
+            if (categoryMatch && searchMatch && statusMatch) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        });
+        document.getElementById('select-all-checkbox').checked = false;
+        updateBatchActionBar();
+    }
+
+    // --- 分组和标签编辑 ---
+    function openMetaEditor(userId) {
+        document.getElementById(`meta-display-${userId}`).classList.add('hidden');
+        document.getElementById(`meta-editor-${userId}`).classList.remove('hidden');
+        
+        const account = allAccountsData.find(acc => acc.user_id === userId);
+        const tags = account.tags || [];
+        const pillsContainer = document.getElementById(`tags-pills-${userId}`);
+        pillsContainer.innerHTML = '';
+        tags.forEach(tag => {
+            const pill = createTagPill(tag, (p) => p.remove());
+            pillsContainer.appendChild(pill);
+        });
+        
+        setupTagInput(`add-tag-input-${userId}`, `add-tag-btn-${userId}`, `tags-pills-${userId}`);
+    }
+
+    function closeMetaEditor(userId) {
+        document.getElementById(`meta-display-${userId}`).classList.remove('hidden');
+        document.getElementById(`meta-editor-${userId}`).classList.add('hidden');
+    }
+
+    async function saveAccountMeta(userId) {
+        const category = document.getElementById(`category-input-${userId}`).value.trim() || '未分组';
+        const tagsPills = document.querySelectorAll(`#tags-pills-${userId} span>span`);
+        const tags = Array.from(tagsPills).map(span => span.textContent);
+
+        const response = await fetch('/api/update_account_meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, category, tags })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('元数据保存成功', 'success');
+        } else {
+            showToast('保存失败: ' + result.message, 'error');
+        }
+    }
+    
+    // --- 规则和设置 ---
+    const toggleSettings = (userId, userInitiated) => {
+        const panel = document.getElementById(`settings-${userId}`);
+        panel.classList.toggle('hidden');
+    };
+
+    const openRuleModal = async (userId, ruleId = null) => {
+        currentEditingUserId = userId;
+        modalForm.reset();
+        updateCounts();
+        document.getElementById('rule-id').value = ruleId !== null ? ruleId : '';
+        document.getElementById('rule-modal-title').textContent = ruleId !== null ? '编辑规则' : '添加新规则';
+        document.getElementById('member-search-input').value = '';
+        document.getElementById('select-all-members-checkbox').checked = false;
+        document.getElementById('dest-search-input').value = '';
+        document.getElementById('select-all-dest-checkbox').checked = false;
+        ruleModal.classList.remove('hidden');
+        modalForm.classList.add('hidden');
+        modalLoader.classList.remove('hidden');
+
+        await loadRoomsForModal(false);
+
+        if (ruleId !== null) {
+            const accountDiv = document.getElementById(`account-${userId}`);
+            const rules = JSON.parse(accountDiv.dataset.rules || '[]');
+            const rule = rules[ruleId];
+            if (rule) {
+                document.getElementById('source-room-select').value = rule.source_room.id;
+                await loadMembersForModal(rule.source_room.id, false);
+                rule.source_members.forEach(member => {
+                    const cb = document.querySelector(`#source-member-multiselect input[value="${member.id}"]`);
+                    if (cb) cb.checked = true;
+                });
+                rule.destinations.forEach(dest => {
+                    const cb = document.querySelector(`#destination-room-multiselect input[type="checkbox"][value="${dest.id}"]`);
+                    if (cb) cb.checked = true;
+                });
+                document.getElementById('rule-enabled').checked = rule.enabled;
+                updateCounts();
+            }
+        }
+        modalLoader.classList.add('hidden');
+        modalForm.classList.remove('hidden');
+    };
+
+    const closeRuleModal = () => { ruleModal.classList.add('hidden'); currentEditingUserId = null; };
+    
+     const loadRoomsForModal = async (forceRefresh) => {
+        const userId = currentEditingUserId;
+        if (!userId) return;
+        modalLoader.classList.remove('hidden');
+        const response = await fetch('/api/request_rooms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ user_id: userId, force_refresh: forceRefresh })
+        });
+        const result = await response.json();
+        if (result.success && result.cached) {
+            populateRoomSelectsInModal(result.rooms);
+        } else if (result.success) {
+            modalLoader.querySelector('p').textContent = '已发送请求，等待客户端响应...';
+        } else {
+            showToast(`请求群列表失败: ${result.message}`, 'error');
+            modalLoader.classList.add('hidden');
+        }
+    };
+
+    const populateRoomSelectsInModal = (rooms) => {
+        const sourceSelect = document.getElementById('source-room-select');
+        const destContainer = document.getElementById('destination-room-multiselect');
+        sourceSelect.innerHTML = '<option value="">-- 请选择来源群聊 --</option>';
+        destContainer.innerHTML = '';
+        document.getElementById('dest-search-input').value = '';
+        document.getElementById('select-all-dest-checkbox').checked = false;
+
+        if(rooms && rooms.length > 0) {
+            rooms.forEach(room => {
+                const option = new Option(room.room_name, room.room_chat_id);
+                sourceSelect.add(option);
+                destContainer.innerHTML += `
+                    <label class="dest-item block mb-1">
+                        <input type="checkbox" value="${room.room_chat_id}" data-name="${room.room_name}" class="mr-2 rounded border-gray-300">
+                        ${room.room_name}
+                    </label>`;
+            });
+        } else {
+            destContainer.innerHTML = '<p class="text-gray-500">无可用群聊，请尝试刷新。</p>';
+        }
+        sourceSelect.onchange = () => loadMembersForModal(sourceSelect.value, false);
+        filterDestinations();
+        updateCounts();
+        modalLoader.classList.add('hidden');
+        modalForm.classList.remove('hidden');
+    };
+
+    const loadMembersForModal = async (roomId, forceRefresh) => {
+        const userId = currentEditingUserId;
+        const memberContainer = document.getElementById('source-member-multiselect');
+        document.getElementById('member-search-input').value = '';
+        document.getElementById('select-all-members-checkbox').checked = false;
+
+        if (!roomId) {
+            memberContainer.innerHTML = '请先选择来源群聊...';
+            return;
+        }
+        memberContainer.innerHTML = `<div class="p-4 text-center"><div class="spinner w-4 h-4 rounded-full border-2 inline-block"></div> 正在加载成员...</div>`;
+
+        const response = await fetch('/api/request_members', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ user_id: userId, room_id: roomId, force_refresh: forceRefresh })
+        });
+        const result = await response.json();
+
+        if (result.success && result.cached) {
+            populateMembersInModal(result.members);
+        } else if (result.success) {
+            memberContainer.innerHTML = `<div class="p-4 text-center text-blue-600">已发送请求，等待客户端响应...</div>`;
+        } else {
+            memberContainer.innerHTML = `<div class="p-4 text-center text-red-600">请求失败: ${result.message}</div>`;
+        }
+    };
+    
+    const populateMembersInModal = (members) => {
+        const memberContainer = document.getElementById('source-member-multiselect');
+        const previouslyChecked = new Set();
+        memberContainer.querySelectorAll('input:checked').forEach(cb => previouslyChecked.add(cb.value));
+        memberContainer.innerHTML = '';
+        if (members && members.length > 0) {
+            members.forEach(member => {
+                if (String(member.user_id) === currentEditingUserId) return;
+                const memberName = member.nickname || member.name || '未知昵称';
+                const isChecked = previouslyChecked.has(String(member.user_id)) ? 'checked' : '';
+                const fallbackAvatar = buildAvatarDataUrl(memberName, 40);
+                const avatarUrl = member.avatar_url || fallbackAvatar;
+                
+                memberContainer.innerHTML += `
+                    <label class="member-item flex items-center p-1.5 rounded-md hover:bg-gray-100 cursor-pointer">
+                        <input type="checkbox" value="${member.user_id}" data-name="${memberName}" class="mr-3 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" ${isChecked}>
+                        <img src="${avatarUrl}" 
+                             onerror="this.onerror=null; this.src='${fallbackAvatar}';"
+                             class="w-8 h-8 rounded-full mr-2 object-cover border">
+                        <span class="text-sm">${memberName}</span>
+                    </label>`;
+            });
+        } else {
+            memberContainer.innerHTML = '未找到群成员。';
+        }
+        filterMembers();
+        updateCounts();
+    };
+
+    const refreshMembersForModal = () => {
+        const roomId = document.getElementById('source-room-select').value;
+        if (!roomId) { showToast('请先选择一个来源群聊才能刷新成员列表。', 'error'); return; }
+        loadMembersForModal(roomId, true);
+    };
+
+    const updateCounts = () => {
+        document.getElementById('member-count').textContent = `(${document.querySelectorAll('#source-member-multiselect input:checked').length})`;
+        document.getElementById('dest-count').textContent = `(${document.querySelectorAll('#destination-room-multiselect input:checked').length})`;
+    };
+    
+    const filterMembers = () => {
+        const filter = document.getElementById('member-search-input').value.toLowerCase();
+        const items = document.querySelectorAll('#source-member-multiselect .member-item');
+        let hasVisible = false;
+        items.forEach(item => {
+            const show = item.textContent.toLowerCase().includes(filter);
+            item.style.display = show ? "" : "none";
+            if(show) hasVisible = true;
+        });
+        document.getElementById('select-all-members-checkbox').checked = !hasVisible ? false : document.getElementById('select-all-members-checkbox').checked;
+    };
+    const toggleSelectAllMembers = (isChecked) => {
+        document.querySelectorAll('#source-member-multiselect .member-item').forEach(item => {
+            if (item.style.display !== 'none') item.querySelector('input').checked = isChecked;
+        });
+        updateCounts();
+    };
+    const filterDestinations = () => {
+        const filter = document.getElementById('dest-search-input').value.toLowerCase();
+        const items = document.querySelectorAll('#destination-room-multiselect .dest-item');
+        let hasVisible = false;
+        items.forEach(item => {
+            const show = item.textContent.toLowerCase().includes(filter);
+            item.style.display = show ? "" : "none";
+            if(show) hasVisible = true;
+        });
+        document.getElementById('select-all-dest-checkbox').checked = !hasVisible ? false : document.getElementById('select-all-dest-checkbox').checked;
+    };
+    const toggleSelectAllDestinations = (isChecked) => {
+        document.querySelectorAll('#destination-room-multiselect .dest-item').forEach(item => {
+            if (item.style.display !== 'none') item.querySelector('input').checked = isChecked;
+        });
+        updateCounts();
+    };
+
+    document.getElementById('rule-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userId = currentEditingUserId;
+        const ruleId = document.getElementById('rule-id').value;
+        const sourceRoomSelect = document.getElementById('source-room-select');
+        const sourceRoom = { id: sourceRoomSelect.value, name: sourceRoomSelect.options[sourceRoomSelect.selectedIndex].text };
+        const sourceMembers = Array.from(document.querySelectorAll('#source-member-multiselect input:checked')).map(cb => ({ id: cb.value, name: cb.dataset.name }));
+        const destinations = Array.from(document.querySelectorAll('#destination-room-multiselect input:checked')).map(cb => ({ id: cb.value, name: cb.dataset.name }));
+        if (!sourceRoom.id || sourceMembers.length === 0 || destinations.length === 0) {
+            showToast('来源群聊、触发成员和目标群聊均不能为空！', 'error');
+            return;
+        }
+        const newRule = { source_room: sourceRoom, source_members: sourceMembers, destinations: destinations, enabled: document.getElementById('rule-enabled').checked };
+        const accountDiv = document.getElementById(`account-${userId}`);
+        let rules = JSON.parse(accountDiv.dataset.rules || '[]');
+        if (ruleId) { rules[ruleId] = newRule; } else { rules.push(newRule); }
+        await saveSettings(userId, rules);
+        closeRuleModal();
+    });
+
+    const deleteRule = async (userId, ruleId) => {
+        showConfirm('删除规则', '确定要删除这条规则吗？', () => {
+            const accountDiv = document.getElementById(`account-${userId}`);
+            let rules = JSON.parse(accountDiv.dataset.rules || '[]');
+            rules.splice(ruleId, 1);
+            saveSettings(userId, rules);
+        });
+    };
+
+    const saveSettings = async (userId, rulesPayload = null) => {
+        const accountDiv = document.getElementById(`account-${userId}`);
+        const sendEnabled = accountDiv.querySelector('.switch input').checked;
+        const delayInput = accountDiv.querySelector('input[type="number"]');
+        const forwardingDelay = delayInput ? parseInt(delayInput.value, 10) : 500;
+        const rules = rulesPayload !== null ? rulesPayload : JSON.parse(accountDiv.dataset.rules || '[]');
+
+        const response = await fetch('/api/save_settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                user_id: userId, 
+                send_enabled: sendEnabled, 
+                forwarding_rules: rules,
+                forwarding_delay: isNaN(forwardingDelay) ? 500 : forwardingDelay
+            })
+        });
+        const result = await response.json();
+        if(!result.success) {
+            showToast(result.message, 'error');
+        } else {
+            if (rulesPayload) showToast('规则保存成功!', 'success');
+        }
+    };
+
+    const unassignAccount = async (accountId) => {
+        showConfirm('解绑账号', '确定要解绑此账号吗？', async () => {
+            await fetch('/api/unassign', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ account_id: accountId }) });
+            showToast('账号已解绑', 'info');
+        });
+    };
+
+    // --- WebSocket 连接与事件处理 ---
+    const connectPanelSocket = () => {
+        const socket = new WebSocket(`ws://${window.location.host}/ws?client_type=viewer`);
+        socket.onclose = () => setTimeout(connectPanelSocket, 3000);
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'user_update' || data.type === 'full_update') {
+                    fetchData();
+                } else if (data.type === 'room_update') {
+                    if (!ruleModal.classList.contains('hidden') && data.payload.user_id === currentEditingUserId) {
+                       populateRoomSelectsInModal(data.payload.rooms);
+                    }
+                } else if (data.type === 'member_update') {
+                    if (!ruleModal.classList.contains('hidden') && data.payload.user_id === currentEditingUserId) {
+                        const sourceRoomSelect = document.getElementById('source-room-select');
+                        if (String(sourceRoomSelect.value) === String(data.payload.room_id)) {
+                            populateMembersInModal(data.payload.members);
+                        }
+                    }
+                }
+            } catch(e) { console.error("Error processing WebSocket message: ", e); }
+        };
+    };
+
+    // --- 初始化 ---
+    (async () => {
+        await fetchData();
+        connectPanelSocket();
+    })();
+</script>
+</body>
+</html>

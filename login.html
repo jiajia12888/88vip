@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 / 注册</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/tailwindcss-browser/4.1.13/index.global.min.js"></script>
+    <style>
+        @import url('https://font.webcache.cn/google/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap');
+
+        :root {
+            --bg-1: #eef3f8;
+            --bg-2: #f9fbfe;
+            --surface: rgba(255, 255, 255, 0.92);
+            --text: #0f172a;
+            --muted: #64748b;
+            --accent: #007aff;
+            --accent-glow: rgba(0, 122, 255, 0.18);
+            --border: rgba(15, 23, 42, 0.12);
+            --shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body.app-body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: radial-gradient(circle at 20% 20%, rgba(0, 122, 255, 0.18), transparent 45%),
+                radial-gradient(circle at 80% 10%, rgba(52, 199, 89, 0.18), transparent 50%),
+                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+            color: var(--text);
+            font-family: "Manrope", "SF Pro Text", "SF Pro Display", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            scroll-behavior: smooth;
+        }
+
+        .auth-card {
+            width: min(420px, 92vw);
+            padding: 32px;
+            border-radius: 26px;
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+            position: relative;
+            overflow: hidden;
+            animation: rise 0.6s ease-out;
+        }
+
+        .auth-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.6), transparent 50%);
+            opacity: 0.6;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .auth-card > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-title,
+        .auth-card h1 {
+            font-size: 26px;
+            font-weight: 700;
+            text-align: center;
+            margin: 0 0 24px;
+            letter-spacing: 0.3px;
+        }
+
+        .field-group {
+            display: grid;
+            gap: 14px;
+        }
+
+        .label-text {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .smooth-input,
+        .auth-card input[type="text"],
+        .auth-card input[type="password"] {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 20px rgba(15, 23, 42, 0.06);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .smooth-input:focus,
+        .auth-card input[type="text"]:focus,
+        .auth-card input[type="password"]:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .action-btn,
+        #login-btn,
+        #register-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 14px;
+            border: none;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+            background: linear-gradient(135deg, #0a84ff, #2563eb);
+            box-shadow: 0 12px 24px rgba(0, 122, 255, 0.25);
+        }
+
+        .action-btn.secondary,
+        #register-btn {
+            background: linear-gradient(135deg, #34c759, #16a34a);
+            box-shadow: 0 12px 24px rgba(52, 199, 89, 0.25);
+        }
+
+        .action-btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.02);
+        }
+
+        #message {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(18px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @media (max-width: 480px) {
+            .auth-card {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body class="app-body">
+    <div class="auth-card">
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 text-center mb-6">控制面板</h1>
+        <div class="space-y-4">
+            <div>
+                <label for="username" class="block text-sm font-medium text-gray-700">手机号 / 用户名</label>
+                <input type="text" id="username" required class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-700">密码</label>
+                <input type="password" id="password" required class="mt-1 w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+        </div>
+        <div class="flex items-center gap-4 mt-6">
+            <button id="login-btn" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 font-semibold">登录</button>
+            <button id="register-btn" class="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 font-semibold">注册</button>
+        </div>
+        <div id="message" class="mt-4 text-center text-sm font-medium"></div>
+    </div>
+    <script>
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById('login-btn');
+        const registerBtn = document.getElementById('register-btn');
+        const messageDiv = document.getElementById('message');
+
+        const showMessage = (msg, isError = false) => {
+            messageDiv.textContent = msg;
+            messageDiv.className = isError ? 'text-red-600' : 'text-green-600';
+            messageDiv.classList.add('mt-4', 'text-center', 'text-sm', 'font-medium');
+        };
+
+        const handleAction = async (url) => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (!username || !password) {
+                showMessage('手机号和密码不能为空', true);
+                return;
+            }
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    if (url === '/api/login') {
+                        showMessage('登录成功，正在跳转...');
+                        window.location.href = result.is_admin ? '/admin' : '/user';
+                    } else {
+                        showMessage('注册成功，请使用新账户登录。');
+                    }
+                } else {
+                    showMessage(result.message, true);
+                }
+            } catch (error) {
+                showMessage('请求失败，请检查网络或联系管理员。', true);
+            }
+        };
+
+        loginBtn.addEventListener('click', () => handleAction('/api/login'));
+        registerBtn.addEventListener('click', () => handleAction('/api/register'));
+        
+        // Allow pressing Enter to login
+        passwordInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                handleAction('/api/login');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>操作面板</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
+        h1, h2 { color: #444; margin: 0; }
+        .account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .account-card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #fafafa; }
+        .account-card h3 { margin: 0 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .account-list { list-style: none; padding: 0; }
+        .account-item { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 10px; border-radius: 4px; margin-bottom: 5px; }
+        .account-info .nick { font-weight: bold; }
+        .account-info .status { font-size: 0.8em; padding: 2px 6px; border-radius: 10px; color: white; }
+        .status-online { background-color: #28a745; }
+        .status-offline { background-color: #6c757d; }
+        .actions button, .actions select { padding: 5px 10px; margin-left: 5px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; }
+        .log-panel { background-color: #2b2b2b; color: #a9b7c6; padding: 15px; border-radius: 5px; height: 300px; overflow-y: scroll; font-family: 'Courier New', monospace; font-size: 14px; margin-top: 20px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>操作面板</h1>
+            <a href="/api/logout">登出</a>
+        </div>
+
+        <!-- Admin View -->
+        <div id="admin-view" class="hidden">
+            <h2>管理视图</h2>
+            <div class="account-grid">
+                <div class="account-card">
+                    <h3>未分配的账号</h3>
+                    <div id="unassigned-list" class="account-list"></div>
+                </div>
+                <div id="assigned-sections"></div>
+            </div>
+        </div>
+
+        <!-- User View -->
+        <div id="user-view" class="hidden">
+            <h2>我的账号</h2>
+            <div class="account-grid">
+                <div class="account-card">
+                    <div id="user-account-list" class="account-list"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="log-container">
+            <h2>实时日志</h2>
+            <div id="log-output" class="log-panel"></div>
+        </div>
+    </div>
+
+<script>
+    const isAdmin = document.cookie.includes('is_admin=true'); // A simple way to check, better done via API
+    let allUsers = [];
+
+    const unassignedList = document.getElementById('unassigned-list');
+    const assignedSections = document.getElementById('assigned-sections');
+    const userAccountList = document.getElementById('user-account-list');
+    const logOutput = document.getElementById('log-output');
+
+    // --- Core Logic ---
+    const getInitialData = async () => {
+        const response = await fetch('/api/data');
+        if (response.status === 401) { window.location.href = '/'; return; }
+        const data = await response.json();
+        
+        if (data.all_users) { // Admin data
+            document.getElementById('admin-view').classList.remove('hidden');
+            allUsers = data.all_users;
+            renderAdminView(data);
+        } else { // User data
+            document.getElementById('user-view').classList.remove('hidden');
+            renderUserView(data);
+        }
+    };
+
+    const renderAdminView = (data) => {
+        unassignedList.innerHTML = '';
+        data.unassigned.forEach(acc => unassignedList.appendChild(createAccountItem(acc, true)));
+        
+        assignedSections.innerHTML = '';
+        for (const user in data.assigned) {
+            let userCard = assignedSections.querySelector(`.user-card[data-user="${user}"]`);
+            if (!userCard) {
+                userCard = document.createElement('div');
+                userCard.className = 'account-card user-card';
+                userCard.dataset.user = user;
+                userCard.innerHTML = `<h3>分配给 ${user}</h3><div class="account-list"></div>`;
+                assignedSections.appendChild(userCard);
+            }
+            const list = userCard.querySelector('.account-list');
+            list.innerHTML = '';
+            data.assigned[user].forEach(acc => list.appendChild(createAccountItem(acc, false)));
+        }
+    };
+
+    const renderUserView = (data) => {
+        userAccountList.innerHTML = '';
+        data.assigned_to_me.forEach(acc => userAccountList.appendChild(createAccountItem(acc, false)));
+    };
+
+    const createAccountItem = (account, isUnassigned) => {
+        const item = document.createElement('div');
+        item.className = 'account-item';
+        const onlineStatus = account.online ? 'online' : 'offline';
+        const onlineText = account.online ? '在线' : '离线';
+
+        let actionsHtml = '';
+        if (isUnassigned) {
+            const options = allUsers.map(u => `<option value="${u}">${u}</option>`).join('');
+            actionsHtml = `
+                <select>${options}</select>
+                <button onclick="assignAccount('${account.user_id}', this)">分配</button>
+            `;
+        } else {
+            actionsHtml = `<button onclick="unassignAccount('${account.user_id}')">解绑</button>`;
+        }
+        
+        item.innerHTML = `
+            <div class="account-info">
+                <span class="nick">${account.myNick}</span>
+                <span class="status status-${onlineStatus}">${onlineText}</span>
+            </div>
+            <div class="actions">${actionsHtml}</div>
+        `;
+        return item;
+    };
+
+    // --- API Calls ---
+    const assignAccount = async (accountId, button) => {
+        const select = button.previousElementSibling;
+        const targetUser = select.value;
+        await fetch('/api/assign', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: accountId, target_user: targetUser })
+        });
+    };
+
+    const unassignAccount = async (accountId) => {
+        await fetch('/api/unassign', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ account_id: accountId })
+        });
+    };
+
+    // --- WebSocket for real-time updates ---
+    const connectPanelSocket = () => {
+        const socket = new WebSocket(`ws://${window.location.host}/ws/panel`);
+        
+        socket.onopen = () => appendLog("面板WebSocket已连接。", "success");
+        socket.onclose = () => {
+            appendLog("面板WebSocket已断开，3秒后重连...", "error");
+            setTimeout(connectPanelSocket, 3000);
+        };
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'log') {
+                appendLog(data.payload.message);
+            } else if (data.type === 'full_update') {
+                 if (data.payload.all_users) { // Admin data
+                    renderAdminView(data.payload);
+                } else { // User data
+                    renderUserView(data.payload);
+                }
+            }
+        };
+    };
+
+    const appendLog = (message, type) => {
+        const div = document.createElement('div');
+        const timestamp = new Date().toLocaleTimeString();
+        let color = '#a9b7c6';
+        if (message.includes("已连接")) color = '#6a8759';
+        if (message.includes("已断开")) color = '#ac4142';
+        if (type === 'success') color = '#98c379';
+        if (type === 'error') color = '#ac4142';
+        
+        div.innerHTML = `<span style="color: #666;">[${timestamp}]</span> <span style="color: ${color};">${message}</span>`;
+        logOutput.appendChild(div);
+        logOutput.scrollTop = logOutput.scrollHeight;
+    };
+
+    // --- Initial Load ---
+    getInitialData();
+    connectPanelSocket();
+</script>
+</body>
+</html>

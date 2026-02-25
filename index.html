@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 控制面板 (FastAPI)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #444; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        #client-list { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; border: 1px solid #ddd; }
+        #client-list li { background: #fff; margin-bottom: 2px; padding: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; font-size: 0.9em;}
+        #client-list li .user-id { font-weight: bold; color: #0056b3; }
+        #client-list li .client-id { font-size: 0.8em; color: #666; }
+        #client-list li:hover, #client-list li.selected { background-color: #d8d8e6; }
+        textarea { width: 100%; min-height: 150px; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; font-size: 14px; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:hover { background-color: #0056b3; }
+        #status { margin-top: 15px; padding: 10px; border-radius: 4px; font-weight: bold; }
+        .status-success { background-color: #d4edda; color: #155724; }
+        .status-error { background-color: #f8d7da; color: #721c24; }
+        .log-panel { background-color: #2b2b2b; color: #a9b7c6; padding: 15px; border-radius: 5px; height: 300px; overflow-y: scroll; white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.5; }
+        .message-bubble { margin-bottom: 10px; padding: 8px 12px; border-radius: 15px; max-width: 80%; background-color: #e4e6eb; color: #050505; }
+        .message-bubble .sender { font-weight: bold; font-size: 0.9em; color: #555; display: block; margin-bottom: 4px; }
+        .message-bubble .content { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket 控制面板 (FastAPI)</h1>
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;">
+                <h2>在线客户端 (<span id="client-count">0</span>)</h2>
+                <ul id="client-list"></ul>
+                <button id="refresh-btn">手动刷新</button>
+                <h2>发送指令</h2>
+                <form id="send-form">
+                    <label for="target-client">目标客户端:</label>
+                    <input type="text" id="target-client" readonly required style="width: 100%; box-sizing: border-box; padding: 8px; background: #eee; border: 1px solid #ccc; margin-bottom: 10px;">
+                    <label for="payload">消息内容 (JSON格式):</label>
+                    <textarea id="payload" required>{ "type": 101, "data": { "conversationId": "S:1234567", "content": "你好" } }</textarea>
+                    <button type="submit">发送消息</button>
+                </form>
+                <div id="status"></div>
+            </div>
+            <div style="flex: 2; display: flex; flex-direction: column; gap: 20px;">
+                <div>
+                    <h2>接收的消息</h2>
+                    <div id="message-output" class="log-panel" style="background-color: #f0f2f5;"></div>
+                </div>
+                <div>
+                    <h2>实时日志</h2>
+                    <div id="log-output" class="log-panel"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const clientListElem = document.getElementById('client-list');
+        const clientCountElem = document.getElementById('client-count');
+        const targetClientInput = document.getElementById('target-client');
+        const sendForm = document.getElementById('send-form');
+        const statusElem = document.getElementById('status');
+        const logOutput = document.getElementById('log-output');
+        const messageOutput = document.getElementById('message-output');
+        const refreshBtn = document.getElementById('refresh-btn');
+
+        function renderClientList(data) {
+            const currentTarget = targetClientInput.value;
+            clientListElem.innerHTML = '';
+            clientCountElem.innerText = data.count;
+            if (data.clients.length > 0) {
+                data.clients.forEach(client => {
+                    const li = document.createElement('li');
+                    li.dataset.clientId = client.client_id;
+                    li.innerHTML = `<div class="user-id">${client.user_id}</div><div class="client-id">${client.client_id}</div>`;
+                    li.onclick = () => {
+                        document.querySelectorAll('#client-list li').forEach(el => el.classList.remove('selected'));
+                        li.classList.add('selected');
+                        targetClientInput.value = client.client_id; // 内部值仍然是IP:Port
+                    };
+                    clientListElem.appendChild(li);
+                });
+                const targetLi = Array.from(clientListElem.querySelectorAll('li')).find(li => li.dataset.clientId === currentTarget);
+                if (targetLi) {
+                    targetLi.classList.add('selected');
+                    targetClientInput.value = currentTarget;
+                } else if (clientListElem.firstChild) {
+                    clientListElem.firstChild.click();
+                }
+            } else {
+                 clientListElem.innerHTML = '<li>没有在线的客户端</li>';
+                 targetClientInput.value = '';
+            }
+        }
+        
+        refreshBtn.onclick = async () => {
+            try {
+                const response = await fetch('/clients');
+                const data = await response.json();
+                renderClientList(data);
+                showStatus('列表已手动刷新', 'success');
+            } catch(e) { showStatus('手动刷新失败', 'error'); }
+        };
+
+        sendForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const clientId = targetClientInput.value;
+            let payload;
+            try { payload = JSON.parse(document.getElementById('payload').value); } catch (error) { showStatus('消息内容不是有效的JSON格式', 'error'); return; }
+            if (!clientId) { showStatus('请先从列表中选择一个客户端', 'error'); return; }
+            try {
+                const response = await fetch('/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId, payload: payload })
+                });
+                const result = await response.json();
+                showStatus(result.message, result.status === 'success' ? 'success' : 'error');
+            } catch (error) { showStatus(`发送请求失败: ${error}`, 'error'); }
+        });
+
+        function showStatus(message, type) {
+            statusElem.textContent = message;
+            statusElem.className = 'status-' + type;
+        }
+
+        function connectLogs() {
+            const logSocket = new WebSocket(`ws://${window.location.host}/?client_type=viewer`);
+            logSocket.onopen = () => appendLogMessage({payload: {message: "日志连接成功 established."}});
+            logSocket.onmessage = (event) => {
+                try {
+                    const eventData = JSON.parse(event.data);
+                    if (eventData.type === 'log') {
+                        const message = eventData.payload.message;
+                        if (message.startsWith("<- 来自")) {
+                            appendIncomingMessage(eventData);
+                        } else {
+                            appendLogMessage(eventData);
+                        }
+                    } else if (eventData.type === 'client_update') {
+                        renderClientList(eventData.payload);
+                    }
+                } catch (e) { console.error("无法解析事件消息:", event.data); }
+            };
+            logSocket.onclose = () => {
+                appendLogMessage({payload: {message: "日志连接已断开，3秒后尝试重连..."}});
+                setTimeout(connectLogs, 3000);
+            };
+            logSocket.onerror = () => appendLogMessage({payload: {message: "日志连接出错."}});
+        }
+        
+        function appendLogMessage(eventData) {
+            const timestamp = new Date(eventData.timestamp || Date.now()).toLocaleTimeString();
+            const messageDiv = document.createElement('div');
+            const message = eventData.payload.message;
+            let color = '#a9b7c6';
+            if (message.includes("已连接")) color = '#6a8759';
+            if (message.includes("已断开")) color = '#ac4142';
+            if (message.includes("发送成功")) color = '#007bff';
+            if (message.includes("信息获取成功")) color = '#98c379';
+            if (message.includes("心跳")) color = '#61afef';
+            messageDiv.innerHTML = `<span style="color: #666;">[${timestamp}]</span> <span style="color: ${color};">${message}</span>`;
+            logOutput.appendChild(messageDiv);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        function appendIncomingMessage(eventData) {
+            const timestamp = new Date(eventData.timestamp || Date.now()).toLocaleTimeString();
+            const fullMessage = eventData.payload.message;
+            const match = fullMessage.match(/<- 来自 (.*?)\s\((.*?)\) 的消息: (.*)/s);
+            if (match) {
+                const [, clientId, userId, content] = match;
+                const messageContainer = document.createElement('div');
+                messageContainer.className = 'message-bubble';
+                messageContainer.innerHTML = `<div class="sender">${userId} <span style="font-weight: normal; color: #666;">(${clientId}) @ ${timestamp}</span></div><div class="content"></div>`;
+                messageContainer.querySelector('.content').textContent = content;
+                messageOutput.appendChild(messageContainer);
+                messageOutput.scrollTop = messageOutput.scrollHeight;
+            } else {
+                 appendLogMessage(eventData);
+            }
+        }
+
+        connectLogs();
+    </script>
+</body>
+</html>

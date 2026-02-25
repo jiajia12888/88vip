@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员面板</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/tailwindcss-browser/4.1.13/index.global.min.js"></script>
+    <style>
+        @import url('https://font.webcache.cn/google/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap');
+
+        :root {
+            --bg-1: #eef3f8;
+            --bg-2: #f9fbfe;
+            --surface: rgba(255, 255, 255, 0.88);
+            --surface-strong: #ffffff;
+            --text: #0f172a;
+            --muted: #64748b;
+            --accent: #007aff;
+            --accent-glow: rgba(0, 122, 255, 0.2);
+            --border: rgba(15, 23, 42, 0.12);
+            --shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+            --shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.12);
+            --radius: 22px;
+        }
+        .account-card { transition: background-color 0.2s; }
+        .account-card:hover { background-color: #f9fafb; }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+        #notification-modal { background-color: rgba(0, 0, 0, 0.5); }
+
+        body.app-body {
+            margin: 0;
+            background: radial-gradient(circle at 15% 20%, rgba(0, 122, 255, 0.18), transparent 40%),
+                radial-gradient(circle at 85% 10%, rgba(52, 199, 89, 0.16), transparent 45%),
+                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+            color: var(--text);
+            font-family: "Manrope", "SF Pro Text", "SF Pro Display", sans-serif;
+            -webkit-font-smoothing: antialiased;
+            scroll-behavior: smooth;
+        }
+
+        .app-shell {
+            padding: clamp(16px, 2.5vw, 28px);
+        }
+
+        .panel-card {
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+            animation: panelRise 0.6s ease-out;
+        }
+
+        .soft-card {
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            border-radius: 18px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .account-card {
+            background: var(--surface-strong);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .account-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+        }
+
+        input[type="text"],
+        select {
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 16px rgba(15, 23, 42, 0.06);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        button {
+            border-radius: 12px;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        a {
+            color: var(--accent);
+        }
+
+        #notification-modal {
+            background-color: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(6px);
+        }
+
+        @keyframes panelRise {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="app-body">
+    <div class="container mx-auto max-w-screen-2xl p-4 sm:p-6 lg:p-8 app-shell">
+        <div class="bg-white rounded-2xl shadow-lg p-6 panel-card">
+            <div class="flex justify-between items-center pb-4 mb-6 border-b border-gray-200">
+                <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">管理员面板</h1>
+                <div class="flex items-center space-x-4">
+                    <a href="/debug" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors">调试面板</a>
+                    <a href="/api/logout" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors">登出</a>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- 左侧：未分配账号 -->
+                <div class="lg:col-span-2 bg-gray-50 p-4 rounded-lg shadow-inner soft-card">
+                    <h3 class="font-semibold mb-3 text-lg text-gray-700 border-b pb-2">未分配的账号</h3>
+                    
+                    <!-- 搜索和批量操作 -->
+                    <div class="bg-white p-3 rounded-md border mb-4 sticky top-4 z-10">
+                        <input type="text" id="search-input" onkeyup="filterUnassignedAccounts()" placeholder="搜索昵称或ID..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition mb-3">
+                        <div id="batch-actions-bar" class="flex items-center gap-4">
+                             <label class="flex items-center text-sm font-medium">
+                                <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)" class="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                                全选 (可见)
+                            </label>
+                            <span id="selection-count" class="text-sm font-semibold text-indigo-600"></span>
+                            <div id="batch-assign-controls" class="flex items-center gap-2 ml-auto hidden">
+                                <select id="batch-assign-user-select" class="p-1 border border-gray-300 rounded-md shadow-sm text-sm">
+                                    <option value="">分配给...</option>
+                                </select>
+                                <button onclick="batchAssignAccounts()" class="bg-indigo-600 text-white font-semibold py-1 px-3 rounded-md text-sm transition-colors shadow-sm hover:bg-indigo-700">
+                                    批量分配
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="unassigned-list" class="space-y-3"></div>
+                </div>
+
+                <!-- 右侧：已分配账号 -->
+                <div class="lg:col-span-1 bg-gray-50 p-4 rounded-lg shadow-inner soft-card">
+                    <h3 class="font-semibold mb-3 text-lg text-gray-700 border-b pb-2">已分配的账号</h3>
+                    <div id="assigned-sections" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 全局提示/确认弹窗 -->
+    <div id="notification-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden">
+        <div class="fixed inset-0" onclick="closeNotification()"></div>
+        <div class="bg-white w-full max-w-sm rounded-lg shadow-xl p-6 z-10">
+            <h2 id="notification-title" class="text-lg font-bold mb-4">提示</h2>
+            <p id="notification-message" class="text-gray-600 mb-6"></p>
+            <div id="notification-actions" class="flex justify-end gap-3">
+                <button id="notification-cancel" onclick="closeNotification()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md">取消</button>
+                <button id="notification-confirm" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md">确认</button>
+            </div>
+        </div>
+    </div>
+
+
+<script>
+    let allUsers = [];
+    const unassignedList = document.getElementById('unassigned-list');
+    const assignedSections = document.getElementById('assigned-sections');
+    
+    // --- 弹窗相关 ---
+    const notificationModal = document.getElementById('notification-modal');
+    const notificationTitle = document.getElementById('notification-title');
+    const notificationMessage = document.getElementById('notification-message');
+    const notificationConfirm = document.getElementById('notification-confirm');
+    const notificationCancel = document.getElementById('notification-cancel');
+    let confirmCallback = null;
+
+    function showNotification(message, title = "提示", onConfirm = null) {
+        notificationTitle.textContent = title;
+        notificationMessage.textContent = message;
+        
+        if (onConfirm && typeof onConfirm === 'function') {
+            notificationCancel.classList.remove('hidden');
+            notificationConfirm.onclick = () => { onConfirm(); closeNotification(); };
+        } else {
+            notificationCancel.classList.add('hidden');
+            notificationConfirm.onclick = closeNotification;
+        }
+        notificationModal.classList.remove('hidden');
+    }
+    
+    function closeNotification() {
+        notificationModal.classList.add('hidden');
+        confirmCallback = null;
+    }
+
+
+    const renderView = (data) => {
+        allUsers = data.all_users.filter(u => u !== 'admin');
+        
+        unassignedList.innerHTML = '';
+        if(data.unassigned && data.unassigned.length > 0) {
+            data.unassigned.forEach(acc => unassignedList.appendChild(createUnassignedAccountItem(acc)));
+        } else {
+            unassignedList.innerHTML = `<p class="text-center text-gray-500 py-4">没有未分配的账号</p>`;
+        }
+        filterUnassignedAccounts();
+
+        assignedSections.innerHTML = '';
+        const sortedUsers = Object.keys(data.assigned).sort();
+        if(sortedUsers.length > 0) {
+            sortedUsers.forEach(user => {
+                const userAccordion = document.createElement('div');
+                userAccordion.className = 'bg-white rounded-md border';
+                const assignedAccounts = data.assigned[user];
+                const onlineCount = assignedAccounts.filter(a => a.online).length;
+                userAccordion.innerHTML = `
+                    <button onclick="toggleAccordion(this)" class="w-full flex justify-between items-center p-3 text-left font-semibold">
+                        <span>${user} (${onlineCount}/${assignedAccounts.length}在线)</span>
+                        <svg class="w-5 h-5 transition-transform transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div class="accordion-content px-3 pb-3">
+                        <div class="account-list space-y-2 border-t pt-2"></div>
+                    </div>
+                `;
+                const list = userAccordion.querySelector('.account-list');
+                assignedAccounts.forEach(acc => list.appendChild(createAssignedAccountItem(acc)));
+                assignedSections.appendChild(userAccordion);
+            });
+        } else {
+            assignedSections.innerHTML = `<p class="text-center text-gray-500 py-4">没有已分配的账号</p>`;
+        }
+
+        const batchUserSelect = document.getElementById('batch-assign-user-select');
+        batchUserSelect.innerHTML = '<option value="">分配给...</option>' + allUsers.map(u => `<option value="${u}">${u}</option>`).join('');
+    };
+    
+    const createUnassignedAccountItem = (account) => {
+        const item = document.createElement('div');
+        item.className = 'account-card bg-white p-3 rounded-lg shadow-sm border flex items-center gap-3';
+        const isOnline = account.online;
+        const onlineStatusClass = isOnline ? 'bg-green-500' : 'bg-gray-400';
+
+        item.innerHTML = `
+            <input type="checkbox" value="${account.user_id}" onchange="updateBatchActionBar()" class="account-checkbox h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0">
+            <div class="flex-grow">
+                <div class="flex justify-between items-center">
+                    <span class="font-bold text-gray-900">${account.myNick}</span>
+                </div>
+                <div class="text-xs text-gray-500">ID: ${account.user_id}</div>
+            </div>
+            <div class="flex-shrink-0 flex items-center gap-1.5 text-xs font-bold text-white px-2 py-0.5 rounded-full ${onlineStatusClass}">
+                ${isOnline ? '在线' : '离线'}
+            </div>
+        `;
+        return item;
+    };
+
+    const createAssignedAccountItem = (account) => {
+        const item = document.createElement('div');
+        item.className = 'flex justify-between items-center text-sm';
+        const isOnline = account.online;
+        const onlineDotClass = isOnline ? 'bg-green-500' : 'bg-gray-400';
+
+        item.innerHTML = `
+            <div class="flex items-center gap-2">
+                 <span class="h-2 w-2 rounded-full ${onlineDotClass}"></span>
+                 <span>${account.myNick}</span>
+                 <span class="text-xs text-gray-400">${account.user_id}</span>
+            </div>
+            <button onclick="unassignAccount('${account.user_id}')" class="text-xs text-red-500 hover:underline">解绑</button>
+        `;
+        return item;
+    }
+
+    const unassignAccount = (accountId) => {
+        showNotification(`确定要解绑账号 ${accountId} 吗？`, '确认解绑', async () => {
+            await fetch('/api/unassign', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ account_id: accountId })
+            });
+        });
+    };
+
+    function toggleAccordion(button) {
+        const content = button.nextElementSibling;
+        const svg = button.querySelector('svg');
+        if (content.style.maxHeight) {
+            content.style.maxHeight = null;
+            svg.classList.remove('rotate-180');
+        } else {
+            content.style.maxHeight = content.scrollHeight + "px";
+            svg.classList.add('rotate-180');
+        } 
+    }
+
+    // --- 批量操作和搜索 ---
+    function filterUnassignedAccounts() {
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+        document.querySelectorAll('#unassigned-list .account-card').forEach(card => {
+            const nick = card.querySelector('.font-bold').textContent.toLowerCase();
+            const id = card.querySelector('.text-xs').textContent.toLowerCase();
+            if (nick.includes(searchTerm) || id.includes(searchTerm)) {
+                card.style.display = 'flex';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+        document.getElementById('select-all-checkbox').checked = false;
+        updateBatchActionBar();
+    }
+
+    function updateBatchActionBar() {
+        const selectedCount = document.querySelectorAll('#unassigned-list .account-checkbox:checked').length;
+        const controls = document.getElementById('batch-assign-controls');
+        const countSpan = document.getElementById('selection-count');
+        
+        if (selectedCount > 0) {
+            controls.classList.remove('hidden');
+            countSpan.textContent = `已选择 ${selectedCount} 个`;
+        } else {
+            controls.classList.add('hidden');
+            countSpan.textContent = '';
+        }
+    }
+
+    function toggleSelectAll(isChecked) {
+        document.querySelectorAll('#unassigned-list .account-card').forEach(card => {
+            if (card.style.display !== 'none') {
+                card.querySelector('.account-checkbox').checked = isChecked;
+            }
+        });
+        updateBatchActionBar();
+    }
+
+    async function batchAssignAccounts() {
+        const selectedIds = Array.from(document.querySelectorAll('#unassigned-list .account-checkbox:checked')).map(cb => cb.value);
+        const targetUser = document.getElementById('batch-assign-user-select').value;
+
+        if (selectedIds.length === 0) {
+            showNotification('请至少选择一个账号。');
+            return;
+        }
+        if (!targetUser) {
+            showNotification('请选择要分配给的用户。');
+            return;
+        }
+        
+        const message = `确定要将选中的 ${selectedIds.length} 个账号分配给 ${targetUser} 吗？`;
+        showNotification(message, '确认批量分配', async () => {
+            try {
+                const response = await fetch('/api/batch_assign', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ account_ids: selectedIds, target_user: targetUser })
+                });
+                const result = await response.json();
+                
+                if (result && result.message) {
+                    showNotification(result.message);
+                } else if (!response.ok) {
+                     showNotification(`操作失败，服务器返回错误: ${response.statusText}`, '错误');
+                } else {
+                    showNotification('操作已提交，但未收到明确的成功消息。', '提示');
+                }
+            } catch (error) {
+                console.error("Batch assign failed:", error);
+                showNotification(`操作失败，发生网络或解析错误。详情请查看控制台。`, '错误');
+            }
+        });
+    }
+
+    const connectPanelSocket = () => {
+        const socket = new WebSocket(`ws://${window.location.host}/ws?client_type=viewer`);
+        socket.onclose = () => setTimeout(connectPanelSocket, 3000);
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'full_update') {
+                    renderView(data.payload);
+                }
+            } catch (e) { console.error("Error processing WebSocket message: ", e); }
+        };
+    };
+
+    (async () => {
+        try {
+            const response = await fetch('/api/data');
+            if (response.status === 401) { window.location.href = '/'; return; }
+            if (!response.ok) throw new Error('Failed to fetch initial data');
+            const data = await response.json();
+            renderView(data);
+            connectPanelSocket();
+        } catch (e) {
+            console.error("Initialization failed:", e);
+            document.body.innerHTML = `<div class="text-red-500 p-4">无法加载数据，请检查后端服务是否正常。</div>`;
+        }
+    })();
+</script>
+</body>
+</html>

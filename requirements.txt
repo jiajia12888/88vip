@@ -1,0 +1,6 @@
+apscheduler
+fastapi
+uvicorn[standard]
+loguru
+redis
+python-multipart
