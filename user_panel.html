@@ -34,7 +34,7 @@
 
         #rule-modal, #batch-edit-modal, #confirm-modal { background-color: rgba(0, 0, 0, 0.5); }
         .modal-content { max-height: 90vh; }
-        .multiselect-container { max-height: 200px; }
+        .multiselect-container { max-height: 420px; }
         /* Better scrollbar for rule edit lists */
         .multiselect-container {
             scrollbar-width: thin;
@@ -434,10 +434,22 @@
     ];
 
     function buildAvatarDataUrl(letter, size) {
-        const safe = (letter || '?').toString().trim().charAt(0) || '?';
+        const source = (letter || '?').toString().trim();
+        let safe = (Array.from(source)[0] || '?');
+        if (typeof safe.toWellFormed === 'function') {
+            safe = safe.toWellFormed();
+        } else {
+            safe = safe.replace(/[\uD800-\uDFFF]/g, '');
+        }
+        if (!safe) safe = '?';
         const fontSize = Math.max(12, Math.round(size * 0.45));
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="100%" height="100%" rx="${Math.round(size / 2)}" fill="#E2E8F0"/><text x="50%" y="50%" text-anchor="middle" dy=".35em" font-family="Manrope, sans-serif" font-size="${fontSize}" fill="#64748B">${safe}</text></svg>`;
-        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+        try {
+            return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+        } catch (e) {
+            const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="100%" height="100%" rx="${Math.round(size / 2)}" fill="#E2E8F0"/><text x="50%" y="50%" text-anchor="middle" dy=".35em" font-family="Manrope, sans-serif" font-size="${fontSize}" fill="#64748B">?</text></svg>`;
+            return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(fallbackSvg)}`;
+        }
     }
 
     function getColorForTag(tagText) {
@@ -977,29 +989,49 @@
     
     const populateMembersInModal = (members) => {
         const memberContainer = document.getElementById('source-member-multiselect');
+        const incomingCount = Array.isArray(members) ? members.length : 0;
         const previouslyChecked = new Set();
         memberContainer.querySelectorAll('input:checked').forEach(cb => previouslyChecked.add(cb.value));
         memberContainer.innerHTML = '';
         if (members && members.length > 0) {
             members.forEach(member => {
-                if (String(member.user_id) === currentEditingUserId) return;
+                if (String(member.user_id) === String(currentEditingUserId)) return;
                 const memberName = member.nickname || member.name || '未知昵称';
                 const isChecked = previouslyChecked.has(String(member.user_id)) ? 'checked' : '';
                 const fallbackAvatar = buildAvatarDataUrl(memberName, 40);
                 const avatarUrl = member.avatar_url || fallbackAvatar;
-                
-                memberContainer.innerHTML += `
-                    <label class="member-item flex items-center p-1.5 rounded-md hover:bg-gray-100 cursor-pointer">
-                        <input type="checkbox" value="${member.user_id}" data-name="${memberName}" class="mr-3 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" ${isChecked}>
-                        <img src="${avatarUrl}" 
-                             onerror="this.onerror=null; this.src='${fallbackAvatar}';"
-                             class="w-8 h-8 rounded-full mr-2 object-cover border">
-                        <span class="text-sm">${memberName}</span>
-                    </label>`;
+
+                const label = document.createElement('label');
+                label.className = 'member-item flex items-center p-1.5 rounded-md hover:bg-gray-100 cursor-pointer';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = String(member.user_id);
+                checkbox.dataset.name = memberName;
+                checkbox.className = 'mr-3 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
+                checkbox.checked = isChecked === 'checked';
+
+                const img = document.createElement('img');
+                img.src = avatarUrl;
+                img.onerror = function () {
+                    this.onerror = null;
+                    this.src = fallbackAvatar;
+                };
+                img.className = 'w-8 h-8 rounded-full mr-2 object-cover border';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'text-sm';
+                nameSpan.textContent = memberName;
+
+                label.appendChild(checkbox);
+                label.appendChild(img);
+                label.appendChild(nameSpan);
+                memberContainer.appendChild(label);
             });
         } else {
             memberContainer.innerHTML = '未找到群成员。';
         }
+        console.log('[members_render]', { incomingCount, renderedCount: memberContainer.querySelectorAll('.member-item').length, currentEditingUserId });
         filterMembers();
         updateCounts();
     };

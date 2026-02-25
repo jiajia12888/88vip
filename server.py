@@ -1,4 +1,5 @@
-﻿import asyncio
+# --***utf-8***--
+import asyncio
 import json
 import base64
 import uuid
@@ -22,7 +23,7 @@ REDIS_PORT = 6379
 REDIS_PASSWORD = "xiaoxiao"
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2"
 redis: aioredis.Redis = None
-TIME_1 = 5
+TIME_1 = 0
 ADMIN_USERNAME = "admin"
 SESSION_COOKIE_NAME = "wspanel_session_id"
 SESSION_EXPIRATION_SECONDS = 86400
@@ -40,6 +41,12 @@ def encode_message(payload: dict) -> str:
         logger.error(f"编码消息时出错: {e}")
         return ""
 
+def normalize_room_id(room_id: Any) -> str:
+    rid = str(room_id or "").strip()
+    if rid.startswith("R:"):
+        rid = rid[2:]
+    return rid
+
 
 async def _generate_and_dispatch_config_for_user(user_id: str):
     """
@@ -55,7 +62,7 @@ async def _generate_and_dispatch_config_for_user(user_id: str):
     client_id = account.get("client_id")
 
     if not client_id or client_id not in manager.mobile_clients:
-        logger.info(f"用户 {user_id} 不在线。跳过配置调度。")
+        logger.info(f"用户 {user_id} 不在线，跳过配置下发")
         return
 
     # --- 核心配置生成逻辑 ---
@@ -94,9 +101,9 @@ async def _generate_and_dispatch_config_for_user(user_id: str):
     }
 
     if await manager.send_message_to_mobile(client_id, config_payload):
-        logger.success(f"已成功向客户端 {client_id} (UserID: {user_id}) 下发配置。{config_payload}")
+        logger.success(f"已向客户端 {client_id} 下发配置 (user_id={user_id})")
     else:
-        logger.error(f"向客户端 {client_id} (UserID: {user_id}) 下发配置失败。")
+        logger.error(f"向客户端 {client_id} 下发配置失败 (user_id={user_id})")
 
 
 def build_payload(item: dict, room_id: str) -> dict:
@@ -198,12 +205,12 @@ class ConnectionManager:
     async def connect_panel(self, websocket: WebSocket, username: str):
         await websocket.accept()
         self.panel_viewers[username] = websocket
-        logger.info(f"Web面板用户 '{username}' 已连接WebSocket。")
+        logger.info(f"面板用户 '{username}' WebSocket 已连接")
 
     def disconnect_panel(self, username: str):
         if username in self.panel_viewers:
             del self.panel_viewers[username]
-            logger.info(f"Web面板用户 '{username}' 已断开WebSocket。")
+            logger.info(f"面板用户 '{username}' WebSocket 已断开")
 
 manager = ConnectionManager()
 
@@ -258,7 +265,10 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
         session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
         username = await redis.get(f"session:{session_id}") if session_id else None
         if not username:
-            await websocket.close(); return
+            await websocket.accept()
+            await websocket.send_text(json.dumps({"type": "auth_error", "message": "not_authenticated"}, ensure_ascii=False))
+            await websocket.close(code=4401)
+            return
         await manager.connect_panel(websocket, username)
         try:
             while True: await websocket.receive_text()
@@ -293,7 +303,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
         # 兼容客户端回包 type=200 或 type=2000
         if response_json.get("type") in (200, 2000) and data_part.get("user_id"):
             user_id = str(data_part["user_id"])
-            my_nick = str(response_json.get("myNick") or data_part.get("myNick", "未知昵称"))
+            my_nick = str(response_json.get("myNick") or data_part.get("myNick", "鏈煡鏄电О"))
             await manager.connect_mobile(websocket, client_id, user_id, my_nick)
         else:
             raise Exception("无效的客户端信息响应")
@@ -327,6 +337,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
                     target_user = json.loads(account_str).get("admin_user")
                     await manager.broadcast_event_to_panels('room_update', {"user_id": user_id, "rooms": room_list}, target_user=target_user)
             elif msg_type == 2503:
+                logger.info(f"[成员回包原始消息] user_id={user_id} raw_msg={json.dumps(msg, ensure_ascii=False)}")
                 req_id = msg.get("requestId")
                 room_id = await redis.get(f"request_map:{req_id}") if req_id else None
                 if room_id: await redis.delete(f"request_map:{req_id}")
@@ -340,10 +351,25 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
                         or msg_data.get("roomId")
                         or msg_data.get("groupId")
                     )
+                room_id = normalize_room_id(room_id)
 
-                member_list = msg_data.get("member_list") or msg_data.get("memberList") or msg_data.get("members") or []
+                raw_member_list = msg_data.get("member_list") or msg_data.get("memberList") or msg_data.get("members") or []
+                member_list = []
+                for m in raw_member_list:
+                    name = str((m or {}).get("nickname") or (m or {}).get("name") or (m or {}).get("realname") or "").strip()
+                    if not name:
+                        continue
+                    member_list.append(m)
+                logger.info(f"[成员回包原始列表] user_id={user_id} room_id={room_id} raw_members={json.dumps(raw_member_list, ensure_ascii=False)}")
+                logger.info(f"[成员过滤后列表] user_id={user_id} room_id={room_id} filtered_members={json.dumps(member_list, ensure_ascii=False)}")
+                logger.info(
+                    f"[member_update] user_id={user_id} req_id={req_id!r} room_id={room_id} "
+                    f"member_count={len(member_list)} raw_count={len(raw_member_list)}"
+                )
                 if room_id:
-                    await redis.hset("cached_members", f"{user_id}:{room_id}", json.dumps(member_list, ensure_ascii=False))
+                    cache_field = f"{user_id}:{room_id}"
+                    await redis.hset("cached_members", cache_field, json.dumps(member_list, ensure_ascii=False))
+                    logger.info(f"[成员缓存已保存] redis_key=cached_members redis_field={cache_field}")
                     account_str = await redis.hget("user_hao", user_id)
                     if account_str:
                         target_user = json.loads(account_str).get("admin_user")
@@ -406,7 +432,7 @@ async def api_register(request: Request):
     if not username or not password:
         return {"success": False, "message": "用户名和密码不能为空"}
     if await redis.hexists("yonghu", username):
-        return {"success": False, "message": "鐢ㄦ埛宸插瓨鍦?"}
+        return {"success": False, "message": "用户已存在"}
     await redis.hset("yonghu", username, json.dumps({"password": password}, ensure_ascii=False))
     return {"success": True, "message": "注册成功"}
 
@@ -453,7 +479,7 @@ async def api_assign(request: Request, user_info: dict = Depends(get_current_use
 @app.post("/api/unassign")
 async def api_unassign(request: Request, user_info: dict = Depends(get_current_user)):
     await asyncio.sleep(TIME_1)
-    # ... (此函数无改动) ...
+    # ... (姝ゅ嚱鏁版棤鏀瑰姩) ...
     data = await request.json()
     account_id = data.get("account_id")
     account_str = await redis.hget("user_hao", account_id)
@@ -475,7 +501,7 @@ async def api_unassign(request: Request, user_info: dict = Depends(get_current_u
 @app.post("/api/request_rooms")
 async def api_request_rooms(request: Request, user_info: dict = Depends(get_current_user)):
     await asyncio.sleep(TIME_1)
-    # ... (此函数无改动) ...
+    # ... (姝ゅ嚱鏁版棤鏀瑰姩) ...
     data = await request.json()
     user_id = data.get("user_id")
     force_refresh = data.get("force_refresh", False)
@@ -501,29 +527,52 @@ async def api_request_rooms(request: Request, user_info: dict = Depends(get_curr
 @app.post("/api/request_members")
 async def api_request_members(request: Request, user_info: dict = Depends(get_current_user)):
     await asyncio.sleep(TIME_1)
-    # ... (此函数无改动) ...
+    # ... (姝ゅ嚱鏁版棤鏀瑰姩) ...
     data = await request.json()
+    logger.info(f"[请求群成员接口] raw_request_json={json.dumps(data, ensure_ascii=False)}")
     user_id, room_id, force_refresh = data.get("user_id"), data.get("room_id"), data.get("force_refresh", False)
     if not user_id or not room_id: raise HTTPException(status_code=400)
+    normalized_room_id = normalize_room_id(room_id)
     auth_account_str = await redis.hget("user_hao", user_id)
     if not auth_account_str:
         return {"success": False, "message": "账号不存在"}
     auth_account = json.loads(auth_account_str)
     if not user_info["is_admin"] and auth_account.get("admin_user") != user_info["username"]:
         raise HTTPException(status_code=403)
-    cached_members_str = await redis.hget("cached_members", f"{user_id}:{room_id}")
+    cache_field = f"{user_id}:{normalized_room_id}"
+    cached_members_str = await redis.hget("cached_members", cache_field)
+    logger.info(f"[群成员缓存检查] user_id={user_id} room_id={room_id} normalized_room_id={normalized_room_id} cache_field={cache_field} cache_hit={bool(cached_members_str)} force_refresh={force_refresh}")
     if cached_members_str and not force_refresh:
+        logger.info(f"[群成员缓存返回] cache_field={cache_field} cached_json={cached_members_str}")
         return {"success": True, "cached": True, "members": json.loads(cached_members_str)}
     account_str = await redis.hget("user_hao", user_id)
-    if not account_str: return {"success": False, "message": "账号不存在"}
+    if not account_str: return {"success": False, "message": "璐﹀彿涓嶅瓨鍦?"}
     client_id = json.loads(account_str).get("client_id")
     if not client_id or client_id not in manager.mobile_clients:
         return {"success": False, "message": "该账号当前不在线"}
     req_id = str(uuid.uuid4())
-    await redis.set(f"request_map:{req_id}", room_id, ex=60)
-    await redis.set(f"last_member_request:{user_id}", room_id, ex=60)
+    await redis.set(f"request_map:{req_id}", normalized_room_id, ex=60)
+    await redis.set(f"last_member_request:{user_id}", normalized_room_id, ex=60)
     req = {"type": 2503, "requestId": req_id, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "data": {"room_chat_id": room_id}}
+    logger.info(f"[下发群成员请求] user_id={user_id} req_json={json.dumps(req, ensure_ascii=False)} request_map_key=request_map:{req_id} request_map_val={normalized_room_id}")
     await manager.send_message_to_mobile(client_id, req)
+    old_cache = cached_members_str
+    wait_seconds = 10
+    interval_seconds = 0.25
+    rounds = int(wait_seconds / interval_seconds)
+    for _ in range(rounds):
+        await asyncio.sleep(interval_seconds)
+        latest = await redis.hget("cached_members", cache_field)
+        if latest and (latest != old_cache or force_refresh):
+            logger.info(f"[群成员轮询命中] cache_field={cache_field} changed={latest != old_cache} force_refresh={force_refresh}")
+            return {"success": True, "cached": True, "members": json.loads(latest)}
+
+    latest = await redis.hget("cached_members", cache_field)
+    if latest:
+        logger.info(f"[群成员轮询兜底返回] cache_field={cache_field} 使用当前缓存返回")
+        return {"success": True, "cached": True, "members": json.loads(latest)}
+
+    logger.info(f"[群成员轮询超时] cache_field={cache_field} wait_seconds={wait_seconds}")
     return {"success": True, "cached": False, "message": "请求已发送"}
 
 
@@ -715,7 +764,7 @@ async def api_batch_leave_groups(request: Request, user_info: dict = Depends(get
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "type": 4001,
         }
-        logger.info(f"[leave_group] user_id={user_id} client_id={client_id} payload={payload}")
+        logger.info(f"[退群下发] user_id={user_id} client_id={client_id} payload={payload}")
         if await manager.send_message_to_mobile(client_id, payload):
             sent_count += 1
         if idx < len(unique_room_ids) - 1 and delay_ms > 0:
@@ -792,3 +841,4 @@ if __name__ == "__main__":
     host = "0.0.0.0"; port = 11012
     logger.success(f"服务器即将启动，请访问 http://{host}:{port}/")
     uvicorn.run(app, host=host, port=port, reload=False)
+
