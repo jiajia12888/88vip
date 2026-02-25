@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 import base64
 import uuid
@@ -406,7 +406,7 @@ async def api_register(request: Request):
     if not username or not password:
         return {"success": False, "message": "用户名和密码不能为空"}
     if await redis.hexists("yonghu", username):
-        return {"success": False, "message": "用户已存在"}
+        return {"success": False, "message": "鐢ㄦ埛宸插瓨鍦?"}
     await redis.hset("yonghu", username, json.dumps({"password": password}, ensure_ascii=False))
     return {"success": True, "message": "注册成功"}
 
