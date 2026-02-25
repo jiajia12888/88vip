@@ -3,9 +3,8 @@ import json
 import base64
 import uuid
 from typing import Dict, List, Optional, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from loguru import logger
 import uvicorn
 from redis import asyncio as aioredis
@@ -15,8 +14,6 @@ from fastapi.security import APIKeyCookie
 
 # --- 配置 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
-os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 logger.add("server.log", rotation="10 MB", retention="7 days", level="INFO", encoding="utf-8")
 
@@ -240,7 +237,6 @@ async def get_data_for_user(username: str):
 
 # --- FastAPI App ---
 app = FastAPI(title="WebSocket 控制服务")
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 @app.on_event("startup")
 async def startup_event():
@@ -306,7 +302,11 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
             raw = await websocket.receive_text()
             msg = {}
             try:
-                decoded_data = base64.b64decode(raw).decode('utf-8')
+                decoded_bytes = base64.b64decode(raw)
+                try:
+                    decoded_data = decoded_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    decoded_data = decoded_bytes.decode("gbk", errors="ignore")
                 msg = json.loads(decoded_data)
             except Exception:
                 try:
@@ -320,7 +320,7 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
             msg_data = msg.get("data", {})
 
             if msg_type == 2502:
-                room_list = msg_data.get("room_list", [])
+                room_list = msg_data.get("room_list") or msg_data.get("roomList") or []
                 await redis.hset("cached_rooms", user_id, json.dumps(room_list, ensure_ascii=False))
                 account_str = await redis.hget("user_hao", user_id)
                 if account_str:
@@ -332,9 +332,16 @@ async def websocket_endpoint(websocket: WebSocket, client_type: Optional[str] = 
                 if room_id: await redis.delete(f"request_map:{req_id}")
                 if not room_id: room_id = await redis.get(f"last_member_request:{user_id}")
                 if room_id: await redis.delete(f"last_member_request:{user_id}")
-                if not room_id: room_id = msg_data.get("room_chat_id") or msg_data.get("group_id")
+                if not room_id:
+                    room_id = (
+                        msg_data.get("room_chat_id")
+                        or msg_data.get("group_id")
+                        or msg_data.get("room_id")
+                        or msg_data.get("roomId")
+                        or msg_data.get("groupId")
+                    )
 
-                member_list = msg_data.get("member_list", [])
+                member_list = msg_data.get("member_list") or msg_data.get("memberList") or msg_data.get("members") or []
                 if room_id:
                     await redis.hset("cached_members", f"{user_id}:{room_id}", json.dumps(member_list, ensure_ascii=False))
                     account_str = await redis.hget("user_hao", user_id)
@@ -416,26 +423,6 @@ async def api_login(request: Request, response: Response):
         return {"success": True, "is_admin": username == ADMIN_USERNAME}
     return {"success": False, "message": "用户名或密码错误"}
 
-@app.post("/api/upload")
-async def api_upload(request: Request, file: UploadFile = File(...), md5: str = Form(...), user_info: dict = Depends(get_current_user)):
-    await asyncio.sleep(TIME_1)
-    # ... (此函数无改动) ...
-    existing_url = await redis.hget("file_md5_map", md5)
-    if existing_url and os.path.exists(os.path.join(UPLOADS_DIR, os.path.basename(existing_url))):
-        return {"success": True, "url": existing_url, "skipped": True}
-    try:
-        extension = os.path.splitext(file.filename)[1]
-        unique_filename = f"{uuid.uuid4()}{extension}"
-        file_path = os.path.join(UPLOADS_DIR, unique_filename)
-        with open(file_path, "wb") as buffer:
-            buffer.write(await file.read())
-        base_url = str(request.base_url).rstrip('/')
-        file_url = f"{base_url}/uploads/{unique_filename}"
-        await redis.hset("file_md5_map", md5, file_url)
-        return {"success": True, "url": file_url, "skipped": False}
-    except Exception as e:
-        logger.error(f"文件上传失败: {e}")
-        raise HTTPException(status_code=500, detail="文件上传失败")
 
 
 @app.get("/api/data")
@@ -492,6 +479,12 @@ async def api_request_rooms(request: Request, user_info: dict = Depends(get_curr
     data = await request.json()
     user_id = data.get("user_id")
     force_refresh = data.get("force_refresh", False)
+    auth_account_str = await redis.hget("user_hao", user_id)
+    if not auth_account_str:
+        return {"success": False, "message": "账号不存在"}
+    auth_account = json.loads(auth_account_str)
+    if not user_info["is_admin"] and auth_account.get("admin_user") != user_info["username"]:
+        raise HTTPException(status_code=403)
     cached_rooms_str = await redis.hget("cached_rooms", user_id)
     if cached_rooms_str and not force_refresh:
         return {"success": True, "cached": True, "rooms": json.loads(cached_rooms_str)}
@@ -511,7 +504,13 @@ async def api_request_members(request: Request, user_info: dict = Depends(get_cu
     # ... (此函数无改动) ...
     data = await request.json()
     user_id, room_id, force_refresh = data.get("user_id"), data.get("room_id"), data.get("force_refresh", False)
-    if not user_id or not room_id: raise HTTPException(400, "缺少参数")
+    if not user_id or not room_id: raise HTTPException(status_code=400)
+    auth_account_str = await redis.hget("user_hao", user_id)
+    if not auth_account_str:
+        return {"success": False, "message": "账号不存在"}
+    auth_account = json.loads(auth_account_str)
+    if not user_info["is_admin"] and auth_account.get("admin_user") != user_info["username"]:
+        raise HTTPException(status_code=403)
     cached_members_str = await redis.hget("cached_members", f"{user_id}:{room_id}")
     if cached_members_str and not force_refresh:
         return {"success": True, "cached": True, "members": json.loads(cached_members_str)}
@@ -659,6 +658,76 @@ async def api_broadcast_to_groups(request: Request, user_info: dict = Depends(ge
         except Exception as e:
             logger.error(f"构建或发送公告失败: {e}")
     return {"success": True, "message": f"公告已成功发送到 {success_count} 个目标群聊。"}
+
+
+@app.post("/api/batch_leave_groups")
+async def api_batch_leave_groups(request: Request, user_info: dict = Depends(get_current_user)):
+    await asyncio.sleep(TIME_1)
+    data = await request.json()
+    user_id = data.get("user_id")
+    room_ids = data.get("room_ids", [])
+    delay_ms = data.get("delay_ms")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="missing user_id")
+
+    account_str = await redis.hget("user_hao", user_id)
+    if not account_str:
+        return {"success": False, "message": "账号不存在"}
+    account = json.loads(account_str)
+
+    if not user_info["is_admin"] and account.get("admin_user") != user_info["username"]:
+        raise HTTPException(status_code=403)
+
+    client_id = account.get("client_id")
+    if not client_id or client_id not in manager.mobile_clients:
+        return {"success": False, "message": "账号当前不在线"}
+
+    if not room_ids:
+        derived_ids = []
+        for rule in account.get("forwarding_rules", []):
+            for dest in rule.get("destinations", []):
+                if dest_id := dest.get("id"):
+                    derived_ids.append(str(dest_id))
+        room_ids = derived_ids
+
+    def _normalize_room_id(value: Any) -> str:
+        rid = str(value).strip()
+        if rid.startswith("R:"):
+            rid = rid[2:]
+        return rid
+
+    unique_room_ids = list(dict.fromkeys([_normalize_room_id(rid) for rid in room_ids if str(rid).strip()]))
+    if not unique_room_ids:
+        return {"success": False, "message": "没有可退群的群聊"}
+
+    try:
+        delay_ms = int(delay_ms) if delay_ms is not None else int(account.get("forwarding_delay", 500))
+    except (TypeError, ValueError):
+        delay_ms = int(account.get("forwarding_delay", 500))
+    delay_ms = max(0, delay_ms)
+
+    sent_count = 0
+    for idx, room_id in enumerate(unique_room_ids):
+        payload = {
+            "data": {"room_id": room_id},
+            "requestId": str(uuid.uuid4()),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "type": 4001,
+        }
+        logger.info(f"[leave_group] user_id={user_id} client_id={client_id} payload={payload}")
+        if await manager.send_message_to_mobile(client_id, payload):
+            sent_count += 1
+        if idx < len(unique_room_ids) - 1 and delay_ms > 0:
+            await asyncio.sleep(delay_ms / 1000.0)
+
+    return {
+        "success": True,
+        "sent_count": sent_count,
+        "total_count": len(unique_room_ids),
+        "delay_ms": delay_ms,
+        "message": f"已发送 {sent_count}/{len(unique_room_ids)} 个退群指令",
+    }
 
 
 @app.post("/api/send")

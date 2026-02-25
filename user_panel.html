@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>用户面板</title>
     <script src="https://cdn.bootcdn.net/ajax/libs/tailwindcss-browser/4.1.13/index.global.min.js"></script>
-    <script src="https://cdn.bootcdn.net/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
     <style>
         @import url('https://font.webcache.cn/google/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@300;400;500;600;700;800&display=swap');
         :root {
@@ -36,6 +35,26 @@
         #rule-modal, #batch-edit-modal, #confirm-modal { background-color: rgba(0, 0, 0, 0.5); }
         .modal-content { max-height: 90vh; }
         .multiselect-container { max-height: 200px; }
+        /* Better scrollbar for rule edit lists */
+        .multiselect-container {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(71, 85, 105, 0.45) rgba(148, 163, 184, 0.15);
+        }
+        .multiselect-container::-webkit-scrollbar {
+            width: 10px;
+        }
+        .multiselect-container::-webkit-scrollbar-track {
+            background: rgba(148, 163, 184, 0.16);
+            border-radius: 9999px;
+        }
+        .multiselect-container::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(99, 102, 241, 0.65), rgba(79, 70, 229, 0.65));
+            border-radius: 9999px;
+            border: 2px solid rgba(148, 163, 184, 0.16);
+        }
+        .multiselect-container::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, rgba(79, 70, 229, 0.8), rgba(67, 56, 202, 0.8));
+        }
         
         #batch-actions-bar { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
 
@@ -258,10 +277,13 @@
                      <div class="flex items-center gap-4 my-2">
                          <input type="text" id="dest-search-input" onkeyup="filterDestinations()" placeholder="搜索目标群聊..." class="w-full p-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500">
                     </div>
-                    <label class="flex items-center text-sm font-medium mb-2">
-                        <input type="checkbox" id="select-all-dest-checkbox" onclick="toggleSelectAllDestinations(this.checked)" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
-                        全选 (可见项)
-                    </label>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="flex items-center text-sm font-medium">
+                            <input type="checkbox" id="select-all-dest-checkbox" onclick="toggleSelectAllDestinations(this.checked)" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 mr-2">
+                            全选 (可见项)
+                        </label>
+                        <button type="button" onclick="leaveSelectedDestinationsFromModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-1 px-3 border border-amber-600 rounded-md shadow-sm text-xs">退出选中群</button>
+                    </div>
                     <div id="destination-room-multiselect" class="multiselect-container w-full p-2 border border-gray-300 rounded-md bg-gray-50 overflow-y-auto">
                         正在加载群聊列表...
                     </div>
@@ -1028,6 +1050,48 @@
         updateCounts();
     };
 
+    const leaveSelectedDestinationsFromModal = async () => {
+        const userId = currentEditingUserId;
+        if (!userId) {
+            showToast('请先打开规则配置弹窗。', 'error');
+            return;
+        }
+
+        const selected = Array.from(document.querySelectorAll('#destination-room-multiselect input:checked')).map(cb => cb.value);
+        const roomIds = [...new Set(selected.filter(Boolean).map(String))];
+        if (roomIds.length === 0) {
+            showToast('请先勾选至少一个目标群。', 'error');
+            return;
+        }
+
+        const accountDiv = document.getElementById(`account-${userId}`);
+        const delayInput = accountDiv ? accountDiv.querySelector('input[type="number"]') : null;
+        const delayMs = delayInput ? parseInt(delayInput.value, 10) : 500;
+        const safeDelay = Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : 500;
+
+        showConfirm(
+            '退出选中群',
+            `将对选中的 ${roomIds.length} 个群发送退群指令，间隔 ${safeDelay}ms，确定继续吗？`,
+            async () => {
+                const response = await fetch('/api/batch_leave_groups', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        room_ids: roomIds,
+                        delay_ms: safeDelay
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showToast(result.message || '退群指令已发送。', 'success');
+                } else {
+                    showToast(result.message || '退群失败。', 'error');
+                }
+            }
+        );
+    };
+
     document.getElementById('rule-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const userId = currentEditingUserId;
@@ -1081,7 +1145,6 @@
             if (rulesPayload) showToast('规则保存成功!', 'success');
         }
     };
-
     const unassignAccount = async (accountId) => {
         showConfirm('解绑账号', '确定要解绑此账号吗？', async () => {
             await fetch('/api/unassign', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ account_id: accountId }) });
